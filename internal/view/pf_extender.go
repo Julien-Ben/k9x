@@ -208,7 +208,7 @@ func showFwdDialog(v ResourceViewer, path string, cb PortForwardCB) error {
 	return nil
 }
 
-func fetchPodPorts(f *watch.Factory, path string) (ports map[string][]v1.ContainerPort, anns map[string]string, err error) {
+func fetchPodPorts(f dao.Factory, path string) (ports map[string][]v1.ContainerPort, anns map[string]string, err error) {
 	slog.Debug("Fetching ports on pod", slogs.FQN, path)
 	o, err := f.Get(client.PodGVR, path, true, labels.Everything())
 	if err != nil {

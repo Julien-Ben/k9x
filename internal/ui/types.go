@@ -34,6 +34,14 @@ type Namespaceable interface {
 
 	// InNamespace check if current namespace matches models.
 	InNamespace(string) bool
+
+	// MultiContext reports whether the model is rendering rows from multiple
+	// kubeconfig contexts. When true, the UI should keep the CONTEXT column
+	// visible; when false, it should hide it.
+	MultiContext() bool
+
+	// SetMultiContext sets the multi-context flag. Called once at view init.
+	SetMultiContext(bool)
 }
 
 // Lister tracks resource getter.

@@ -64,6 +64,7 @@ func (t *Table) Init(ctx context.Context) (err error) {
 	t.SetInputCapture(t.keyboard)
 	t.bindKeys()
 	t.GetModel().SetRefreshRate(t.app.Config.K9s.RefreshDuration())
+	t.GetModel().SetMultiContext(t.app.Config.K9s.MultiContextMode)
 	t.CmdBuff().AddListener(t)
 
 	return nil

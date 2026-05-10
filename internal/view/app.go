@@ -20,6 +20,7 @@ import (
 	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/config"
+	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/model"
 	"github.com/derailed/k9s/internal/slogs"
 	"github.com/derailed/k9s/internal/ui"
@@ -29,6 +30,7 @@ import (
 	"github.com/derailed/k9s/internal/watch"
 	"github.com/derailed/tcell/v2"
 	"github.com/derailed/tview"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
 // ExitStatus indicates UI exit conditions.
@@ -47,7 +49,7 @@ type App struct {
 	*ui.App
 	Content       *PageStack
 	command       *Command
-	factory       *watch.Factory
+	factory       dao.LifecycleFactory
 	cancelFn      context.CancelFunc
 	clusterModel  *model.ClusterInfo
 	cmdHistory    *model.History
@@ -110,7 +112,15 @@ func (a *App) Init(version string, _ int) error {
 	// We'll fall back to context view in defaultCmd
 	if a.Conn() != nil {
 		ns := a.Config.ActiveNamespace()
-		a.factory = watch.NewFactory(a.Conn())
+		if a.Config.K9s.MultiContextMode {
+			mf, err := a.buildMultiFactory()
+			if err != nil {
+				return fmt.Errorf("multi-context init failed: %w", err)
+			}
+			a.factory = mf
+		} else {
+			a.factory = watch.NewFactory(a.Conn())
+		}
 		a.initFactory(ns)
 
 		a.clusterModel = model.NewClusterInfo(a.factory, a.version, a.Config.K9s)
@@ -527,6 +537,79 @@ func (a *App) switchContext(ci *cmd.Interpreter, force bool) error {
 func (a *App) initFactory(ns string) {
 	a.factory.Terminate()
 	a.factory.Start(ns)
+}
+
+// buildMultiFactory enumerates every kubeconfig context, builds one APIClient
+// and one watch.Factory per context, and returns a MultiFactory that wraps
+// them all. Any context that fails to initialize causes the function to
+// return an error — k9s refuses to launch in multi-context mode if any
+// context is unreachable (decision Q1 from the demo plan).
+func (a *App) buildMultiFactory() (*watch.MultiFactory, error) {
+	primaryConn := a.Conn()
+	contexts, err := primaryConn.Config().Contexts()
+	if err != nil {
+		return nil, fmt.Errorf("listing kubeconfig contexts: %w", err)
+	}
+	primaryCtx, err := primaryConn.Config().CurrentContextName()
+	if err != nil {
+		return nil, fmt.Errorf("resolving primary context: %w", err)
+	}
+
+	children := make(map[string]*watch.Factory, len(contexts))
+	for ctxName := range contexts {
+		var apiClient *client.APIClient
+		if ctxName == primaryCtx {
+			// Reuse the already-initialized primary connection. The cast is
+			// safe — a.Conn() returns *APIClient in production.
+			ac, ok := primaryConn.(*client.APIClient)
+			if !ok {
+				return nil, fmt.Errorf("primary connection is not *client.APIClient (got %T)", primaryConn)
+			}
+			apiClient = ac
+		} else {
+			ac, err := initContextAPIClient(primaryConn.Config(), ctxName)
+			if err != nil {
+				return nil, fmt.Errorf("context %q: %w", ctxName, err)
+			}
+			apiClient = ac
+		}
+		children[ctxName] = watch.NewFactory(apiClient)
+	}
+
+	return watch.NewMultiFactory(primaryCtx, children)
+}
+
+// initContextAPIClient builds an APIClient pinned to the named kubeconfig
+// context, cloning relevant flags from the base config (kubeconfig path,
+// timeout, impersonation). Returns an error if the context cannot connect.
+func initContextAPIClient(base *client.Config, ctxName string) (*client.APIClient, error) {
+	ct, err := base.GetContext(ctxName)
+	if err != nil {
+		return nil, err
+	}
+	flags := genericclioptions.NewConfigFlags(client.UsePersistentConfig)
+	name := ctxName
+	cluster := ct.Cluster
+	flags.Context = &name
+	flags.ClusterName = &cluster
+	flags.Namespace = base.Flags().Namespace
+	flags.Timeout = base.Flags().Timeout
+	flags.KubeConfig = base.Flags().KubeConfig
+	flags.Impersonate = base.Flags().Impersonate
+	flags.ImpersonateGroup = base.Flags().ImpersonateGroup
+	flags.ImpersonateUID = base.Flags().ImpersonateUID
+	flags.Insecure = base.Flags().Insecure
+	flags.BearerToken = base.Flags().BearerToken
+
+	cfg := client.NewConfig(flags)
+	apiClient, err := client.InitConnection(cfg, slog.Default())
+	if err != nil {
+		return nil, err
+	}
+	if !apiClient.CheckConnectivity() || !apiClient.ConnectionOK() {
+		return nil, fmt.Errorf("connectivity check failed")
+	}
+	return apiClient, nil
 }
 
 // BailOut exists the application.

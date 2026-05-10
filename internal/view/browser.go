@@ -31,6 +31,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
+const multiContextNotAvailable = "Not available in multi-context mode"
+
 // Browser represents a generic resource browser.
 type Browser struct {
 	*Table
@@ -399,6 +401,10 @@ func (b *Browser) nsWarpCmd(*tcell.EventKey) *tcell.EventKey {
 }
 
 func (b *Browser) viewCmd(evt *tcell.EventKey) *tcell.EventKey {
+	if b.app.Config.K9s.MultiContextMode {
+		b.app.Flash().Warn(multiContextNotAvailable)
+		return nil
+	}
 	path := b.GetSelectedItem()
 	if path == "" {
 		return evt
@@ -456,6 +462,16 @@ func (b *Browser) filterCmd(evt *tcell.EventKey) *tcell.EventKey {
 }
 
 func (b *Browser) enterCmd(evt *tcell.EventKey) *tcell.EventKey {
+	if b.app.Config.K9s.MultiContextMode {
+		// Drill-down (Deployment→Pods, STS→Pods, etc.) uses the parent's
+		// label selector to list children. In multi mode the MultiFactory
+		// fans that selector to every cluster, so children from non-source
+		// contexts get pulled in (cross-cluster label collision). Block
+		// drill-down until per-row source-context routing is implemented
+		// in MVP.
+		b.app.Flash().Warn(multiContextNotAvailable)
+		return nil
+	}
 	path := b.GetSelectedItem()
 	if b.filterCmd(evt) == nil || path == "" {
 		return nil
@@ -487,6 +503,10 @@ func (b *Browser) refreshCmd(*tcell.EventKey) *tcell.EventKey {
 }
 
 func (b *Browser) deleteCmd(evt *tcell.EventKey) *tcell.EventKey {
+	if b.app.Config.K9s.MultiContextMode {
+		b.app.Flash().Warn(multiContextNotAvailable)
+		return nil
+	}
 	selections := b.GetSelectedItems()
 	if len(selections) == 0 {
 		return evt
@@ -528,6 +548,10 @@ func (b *Browser) countHiddenMarks(selections []string) int {
 }
 
 func (b *Browser) describeCmd(evt *tcell.EventKey) *tcell.EventKey {
+	if b.app.Config.K9s.MultiContextMode {
+		b.app.Flash().Warn(multiContextNotAvailable)
+		return nil
+	}
 	path := b.GetSelectedItem()
 	if path == "" {
 		return evt
@@ -538,6 +562,10 @@ func (b *Browser) describeCmd(evt *tcell.EventKey) *tcell.EventKey {
 }
 
 func (b *Browser) editCmd(evt *tcell.EventKey) *tcell.EventKey {
+	if b.app.Config.K9s.MultiContextMode {
+		b.app.Flash().Warn(multiContextNotAvailable)
+		return nil
+	}
 	path := b.GetSelectedItem()
 	if path == "" {
 		return evt
@@ -643,6 +671,7 @@ func (b *Browser) defaultContext() context.Context {
 	}
 	ctx = context.WithValue(ctx, internal.KeyNamespace, client.CleanseNamespace(b.App().Config.ActiveNamespace()))
 	ctx = context.WithValue(ctx, internal.KeyWithMetrics, b.app.factory.Client().HasMetrics())
+	ctx = context.WithValue(ctx, internal.KeyMultiContext, b.App().Config.K9s.MultiContextMode)
 
 	return ctx
 }

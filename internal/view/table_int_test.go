@@ -205,6 +205,8 @@ func (*mockTableModel) ToYAML(context.Context, string) (string, error) {
 	return "", nil
 }
 func (*mockTableModel) InNamespace(string) bool      { return true }
+func (*mockTableModel) MultiContext() bool           { return false }
+func (*mockTableModel) SetMultiContext(bool)         {}
 func (*mockTableModel) SetRefreshRate(time.Duration) {}
 
 func makeTableData() *model1.TableData {

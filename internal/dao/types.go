@@ -45,6 +45,36 @@ type Factory interface {
 	Forwarders() watch.Forwarders
 }
 
+// LifecycleFactory is a Factory augmented with informer lifecycle and
+// port-forward management. Used by the view layer to drive informer start/stop
+// and forwarder registration. Kept separate from Factory to avoid widening the
+// contract for DAOs (notably PortForwarder, which embeds Factory and has its
+// own Start method with a different signature).
+type LifecycleFactory interface {
+	Factory
+
+	// Start starts informers for the given namespace.
+	Start(ns string)
+
+	// Terminate stops all informers and clears state.
+	Terminate()
+
+	// SetActiveNS sets the active namespace for the factory.
+	SetActiveNS(ns string) error
+
+	// HasSynced reports whether the informer for a resource is up to date.
+	HasSynced(gvr *client.GVR, ns string) (bool, error)
+
+	// AddForwarder registers a port forwarder.
+	AddForwarder(pf watch.Forwarder)
+
+	// ForwarderFor returns a port forwarder for a given path.
+	ForwarderFor(path string) (watch.Forwarder, bool)
+
+	// ValidatePortForwards prunes stale port-forwards.
+	ValidatePortForwards()
+}
+
 // ImageLister tracks resources with container images.
 type ImageLister interface {
 	// ListImages lists container images.

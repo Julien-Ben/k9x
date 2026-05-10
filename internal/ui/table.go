@@ -465,6 +465,7 @@ func (t *Table) doUpdate(data *model1.TableData) *model1.TableData {
 func (t *Table) shouldExcludeColumn(h model1.HeaderColumn) bool {
 	return (h.Hide || (!t.wide && h.Wide)) ||
 		(h.Name == "NAMESPACE" && !t.GetModel().ClusterWide()) ||
+		(h.Name == "CONTEXT" && !t.GetModel().MultiContext()) ||
 		(h.MX && !t.hasMetrics) ||
 		(h.VS && vul.ImgScanner == nil)
 }

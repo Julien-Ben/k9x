@@ -7,6 +7,9 @@ package model1
 type Row struct {
 	ID     string
 	Fields Fields
+	// Source identifies the row's source context name in multi-context mode.
+	// Empty in single-context mode.
+	Source string
 }
 
 // NewRow returns a new row with initialized fields.

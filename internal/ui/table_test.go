@@ -89,6 +89,8 @@ func (*mockModel) RemoveListener(model.TableListener)                  {}
 func (*mockModel) Watch(context.Context) error                         { return nil }
 func (*mockModel) Get(context.Context, string) (runtime.Object, error) { return nil, nil }
 func (*mockModel) InNamespace(string) bool                             { return true }
+func (*mockModel) MultiContext() bool                                  { return false }
+func (*mockModel) SetMultiContext(bool)                                {}
 func (*mockModel) SetRefreshRate(time.Duration)                        {}
 
 func (*mockModel) Delete(context.Context, string, *metav1.DeletionPropagation, dao.Grace) error {

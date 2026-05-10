@@ -17,6 +17,7 @@ import (
 	"github.com/derailed/k9s/internal/config"
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/model1"
+	"github.com/derailed/k9s/internal/render"
 	"github.com/derailed/k9s/internal/slogs"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -48,6 +49,7 @@ type Table struct {
 	labelSelector labels.Selector
 	mx            sync.RWMutex
 	vs            *config.ViewSetting
+	multiContext  bool
 }
 
 // NewTable returns a new table model.
@@ -182,6 +184,18 @@ func (t *Table) ClusterWide() bool {
 	return client.IsClusterWide(t.data.GetNamespace())
 }
 
+// MultiContext reports whether the table is rendering rows aggregated from
+// multiple kubeconfig contexts.
+func (t *Table) MultiContext() bool {
+	return t.multiContext
+}
+
+// SetMultiContext enables or disables multi-context mode for this table.
+// Called once at table creation time.
+func (t *Table) SetMultiContext(b bool) {
+	t.multiContext = b
+}
+
 // Empty returns true if no model data.
 func (t *Table) Empty() bool {
 	return t.data.Empty()
@@ -286,8 +300,11 @@ func (t *Table) reconcile(ctx context.Context) error {
 	}
 	r := meta.Renderer
 	r.SetViewSetting(t.vs)
+	if multi, _ := ctx.Value(internal.KeyMultiContext).(bool); multi {
+		r = render.NewMultiContextRenderer(r)
+	}
 
-	return t.data.Render(ctx, meta.Renderer, oo)
+	return t.data.Render(ctx, r, oo)
 }
 
 func (t *Table) fireTableChanged(data *model1.TableData) {

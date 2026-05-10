@@ -144,6 +144,9 @@ func (c *Context) useCtx(app *App, _ ui.Tabular, gvr *client.GVR, path string) {
 }
 
 func useContext(app *App, name string) error {
+	if app.Config.K9s.MultiContextMode {
+		return errors.New("context switching is not supported in multi-context mode")
+	}
 	if app.Content.Top() != nil {
 		app.Content.Top().Stop()
 	}

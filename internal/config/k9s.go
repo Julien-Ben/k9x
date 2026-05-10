@@ -51,6 +51,7 @@ type K9s struct {
 	Logger              Logger     `json:"logger" yaml:"logger"`
 	Thresholds          Threshold  `json:"thresholds" yaml:"thresholds"`
 	DefaultView         string     `json:"defaultView" yaml:"defaultView"`
+	MultiContextMode    bool       `json:"-" yaml:"-"`
 	manualRefreshRate   float32
 	manualReadOnly      *bool
 	manualCommand       *string

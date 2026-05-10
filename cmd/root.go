@@ -246,6 +246,12 @@ func initK9sFlags() {
 		false,
 		"Launch K9s in all namespaces",
 	)
+	rootCmd.Flags().BoolVar(
+		k9sFlags.AllContexts,
+		"all-contexts",
+		false,
+		"EXPERIMENTAL: Launch K9s aggregating resources across all kubeconfig contexts (read-only)",
+	)
 	rootCmd.Flags().StringVarP(
 		k9sFlags.Command,
 		"command", "c",

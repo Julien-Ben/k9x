@@ -143,6 +143,13 @@ func (c *Config) Refine(flags *genericclioptions.ConfigFlags, k9sFlags *Flags, c
 		return err
 	}
 
+	if k9sFlags != nil && IsBoolSet(k9sFlags.AllContexts) {
+		c.K9s.MultiContextMode = true
+		// Multi-context mode is read-only for now (no per-row action routing).
+		// Force read-only to prevent mutations from hitting the wrong cluster.
+		c.K9s.ReadOnly = true
+	}
+
 	return data.EnsureDirPath(c.K9s.AppScreenDumpDir(), data.DefaultDirMod)
 }
 
