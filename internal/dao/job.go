@@ -93,7 +93,13 @@ func (j *Job) TailLogs(ctx context.Context, opts *LogOptions) ([]LogChan, error)
 }
 
 func (j *Job) GetInstance(fqn string) (*batchv1.Job, error) {
-	o, err := j.getFactory().Get(j.gvr, fqn, true, labels.Everything())
+	return j.GetInstanceWithContext(context.Background(), fqn)
+}
+
+// GetInstanceWithContext fetches a job, honoring internal.KeyScopeContext on
+// ctx for per-row routing in multi-context mode.
+func (j *Job) GetInstanceWithContext(ctx context.Context, fqn string) (*batchv1.Job, error) {
+	o, err := getRes(j.getFactory(), ctx, j.gvr, fqn)
 	if err != nil {
 		return nil, err
 	}

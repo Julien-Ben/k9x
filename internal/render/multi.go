@@ -8,6 +8,7 @@ import (
 
 	"github.com/derailed/k9s/internal/config"
 	"github.com/derailed/k9s/internal/model1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -67,6 +68,16 @@ func (m *MultiContextRenderer) Header(ns string) model1.Header {
 	out = append(out, model1.HeaderColumn{Name: "CONTEXT"})
 	out = append(out, inner...)
 	return out
+}
+
+// SetTable delegates to the inner renderer when it implements model1.Generic.
+// Without this, GenericHydrate (used by CRDs and other table-driven views)
+// fails the `re.(Generic)` type assertion against the wrapper in multi mode
+// with "expecting generic renderer but got *MultiContextRenderer".
+func (m *MultiContextRenderer) SetTable(ns string, table *metav1.Table) {
+	if g, ok := m.inner.(model1.Generic); ok {
+		g.SetTable(ns, table)
+	}
 }
 
 // Render delegates to the inner renderer then prepends the source-context

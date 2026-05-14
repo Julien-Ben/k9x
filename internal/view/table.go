@@ -130,6 +130,18 @@ func (t *Table) keyboard(evt *tcell.EventKey) *tcell.EventKey {
 // Name returns the table name.
 func (t *Table) Name() string { return t.GVR().R() }
 
+// selectedContext returns the source context name of the currently selected
+// row in multi-context mode, or "" outside multi mode. Used by action
+// handlers and helpers (delete, edit, shellIn, attachIn, …) to route
+// operations to the correct cluster.
+func (t *Table) selectedContext() string {
+	row := t.GetSelectedRowRef()
+	if row == nil {
+		return ""
+	}
+	return row.Source
+}
+
 // AddBindKeysFn adds additional key bindings.
 func (t *Table) AddBindKeysFn(f BindKeysFunc) {
 	t.bindKeysFn = append(t.bindKeysFn, f)

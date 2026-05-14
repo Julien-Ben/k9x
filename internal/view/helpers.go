@@ -123,18 +123,23 @@ func defaultEnv(c *client.Config, path string, header model1.Header, row *model1
 	return env
 }
 
-func describeResource(app *App, _ ui.Tabular, gvr *client.GVR, path string) {
+func describeResource(app *App, m ui.Tabular, gvr *client.GVR, path string) {
 	v := NewLiveView(app, "Describe", model.NewDescribe(gvr, path))
+	v.SetScopeContext(extractRowScope(m, path))
 	if err := app.inject(v, false); err != nil {
 		app.Flash().Err(err)
 	}
 }
 
-func showReplicasets(app *App, path string, labelSel labels.Selector, fieldSel string) {
+func showReplicasets(app *App, path string, labelSel labels.Selector, fieldSel, scopeCtx string) {
 	v := NewReplicaSet(client.RsGVR)
 	v.SetContextFn(func(ctx context.Context) context.Context {
 		ctx = context.WithValue(ctx, internal.KeyPath, path)
-		return context.WithValue(ctx, internal.KeyFields, fieldSel)
+		ctx = context.WithValue(ctx, internal.KeyFields, fieldSel)
+		if scopeCtx != "" {
+			ctx = context.WithValue(ctx, internal.KeyScopeContext, scopeCtx)
+		}
+		return ctx
 	})
 	v.SetLabelSelector(labelSel, true)
 
@@ -147,9 +152,9 @@ func showReplicasets(app *App, path string, labelSel labels.Selector, fieldSel s
 	}
 }
 
-func showPods(app *App, path string, labelSel labels.Selector, fieldSel string) {
+func showPods(app *App, path string, labelSel labels.Selector, fieldSel, scopeCtx string) {
 	v := NewPod(client.PodGVR)
-	v.SetContextFn(podCtx(app, path, fieldSel))
+	v.SetContextFn(podCtx(app, path, fieldSel, scopeCtx))
 	v.SetLabelSelector(labelSel, true)
 
 	ns, _ := client.Namespaced(path)
@@ -161,11 +166,37 @@ func showPods(app *App, path string, labelSel labels.Selector, fieldSel string) 
 	}
 }
 
-func podCtx(_ *App, path, fieldSel string) ContextFunc {
+// podCtx returns a ContextFunc that stashes KeyPath, KeyFields, and (when
+// non-empty) KeyScopeContext on the child view's context. The scope key
+// constrains MultiFactory fan-out to a single child cluster during drill-down.
+func podCtx(_ *App, path, fieldSel, scopeCtx string) ContextFunc {
 	return func(ctx context.Context) context.Context {
 		ctx = context.WithValue(ctx, internal.KeyPath, path)
-		return context.WithValue(ctx, internal.KeyFields, fieldSel)
+		ctx = context.WithValue(ctx, internal.KeyFields, fieldSel)
+		if scopeCtx != "" {
+			ctx = context.WithValue(ctx, internal.KeyScopeContext, scopeCtx)
+		}
+		return ctx
 	}
+}
+
+// extractRowScope returns the source-context name of the row identified by
+// path in the given Tabular model, or "" when the row has no source (single-
+// context mode or unmatched path). Used by enter handlers to forward the
+// parent row's cluster into the child view's drill-down query.
+func extractRowScope(m ui.Tabular, path string) string {
+	if m == nil {
+		return ""
+	}
+	data := m.Peek()
+	if data == nil {
+		return ""
+	}
+	re, ok := data.FindRow(path)
+	if !ok {
+		return ""
+	}
+	return re.Row.Source
 }
 
 func extractApp(ctx context.Context) (*App, error) {

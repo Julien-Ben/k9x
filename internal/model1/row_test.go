@@ -132,6 +132,62 @@ func TestRowCustomize(t *testing.T) {
 	}
 }
 
+func TestRowClonePreservesSource(t *testing.T) {
+	uu := map[string]struct {
+		row model1.Row
+	}{
+		"single": {row: model1.Row{ID: "ns/a", Fields: model1.Fields{"a", "b"}}},
+		"multi":  {row: model1.Row{ID: "ns/a", Fields: model1.Fields{"a", "b"}, Source: "ctxA"}},
+	}
+
+	for k := range uu {
+		u := uu[k]
+		t.Run(k, func(t *testing.T) {
+			clone := u.row.Clone()
+			assert.Equal(t, u.row.Source, clone.Source)
+			assert.Equal(t, u.row, clone)
+		})
+	}
+}
+
+func TestRowCustomizePreservesSource(t *testing.T) {
+	row := model1.Row{ID: "ns/a", Fields: model1.Fields{"a", "b", "c"}, Source: "ctxA"}
+	out := row.Customize([]int{0, 1})
+	assert.Equal(t, "ctxA", out.Source)
+	assert.Equal(t, "ns/a", out.ID)
+	assert.Equal(t, model1.Fields{"a", "b"}, out.Fields)
+}
+
+func TestRowDiffDetectsSourceChange(t *testing.T) {
+	uu := map[string]struct {
+		a, b model1.Row
+		e    bool
+	}{
+		"identical": {
+			a: model1.Row{ID: "ns/a", Fields: model1.Fields{"a", "b"}, Source: "ctxA"},
+			b: model1.Row{ID: "ns/a", Fields: model1.Fields{"a", "b"}, Source: "ctxA"},
+			e: false,
+		},
+		"source-differs": {
+			a: model1.Row{ID: "ns/a", Fields: model1.Fields{"a", "b"}, Source: "ctxA"},
+			b: model1.Row{ID: "ns/a", Fields: model1.Fields{"a", "b"}, Source: "ctxB"},
+			e: true,
+		},
+		"id-differs": {
+			a: model1.Row{ID: "ns/a", Fields: model1.Fields{"a", "b"}},
+			b: model1.Row{ID: "ns/b", Fields: model1.Fields{"a", "b"}},
+			e: true,
+		},
+	}
+
+	for k := range uu {
+		u := uu[k]
+		t.Run(k, func(t *testing.T) {
+			assert.Equal(t, u.e, u.a.Diff(u.b, -1))
+		})
+	}
+}
+
 func TestRowsDelete(t *testing.T) {
 	uu := map[string]struct {
 		rows model1.Rows

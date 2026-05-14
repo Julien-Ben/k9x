@@ -4,8 +4,10 @@
 package view
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/ui"
@@ -39,15 +41,20 @@ func (r *ReplicaSet) bindKeys(aa *ui.KeyActions) {
 	})
 }
 
-func (*ReplicaSet) showPods(app *App, _ ui.Tabular, _ *client.GVR, path string) {
+func (*ReplicaSet) showPods(app *App, m ui.Tabular, _ *client.GVR, path string) {
 	var drs dao.ReplicaSet
-	rs, err := drs.Load(app.factory, path)
+	scope := extractRowScope(m, path)
+	ctx := context.Background()
+	if scope != "" {
+		ctx = context.WithValue(ctx, internal.KeyScopeContext, scope)
+	}
+	rs, err := drs.LoadWithContext(ctx, app.factory, path)
 	if err != nil {
 		app.Flash().Err(err)
 		return
 	}
 
-	showPodsFromSelector(app, path, rs.Spec.Selector)
+	showPodsFromSelector(app, path, rs.Spec.Selector, scope)
 }
 
 func (r *ReplicaSet) rollbackCmd(evt *tcell.EventKey) *tcell.EventKey {

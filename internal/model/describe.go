@@ -185,6 +185,9 @@ func (d *Describe) describe(ctx context.Context, gvr *client.GVR, path string) (
 		desc.SetDecodeData(d.decode)
 	}
 
+	if cd, ok := meta.DAO.(dao.ContextualDescriber); ok {
+		return cd.DescribeWithContext(ctx, path)
+	}
 	return desc.Describe(path)
 }
 

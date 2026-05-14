@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/derailed/k9s/internal/client"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -45,6 +46,30 @@ func (n *NonResource) getFactory() Factory {
 	defer n.mx.RUnlock()
 
 	return n.Factory
+}
+
+// clientFor returns the per-row client.Connection when the underlying factory
+// implements ContextualFactory (multi-context mode), or the primary's Client()
+// otherwise. DAO mutations must use this so writes hit the row's source
+// cluster instead of always landing on the primary.
+func (n *NonResource) clientFor(ctx context.Context) client.Connection {
+	f := n.getFactory()
+	if cf, ok := f.(ContextualFactory); ok {
+		return cf.ClientFor(ctx)
+	}
+	return f.Client()
+}
+
+// getRes fetches the runtime.Object for path, routing through the factory's
+// ContextualFactory.GetWithContext (multi-context mode) when available so the
+// read lands on the row's source cluster. Falls back to the plain Factory.Get
+// in single-context mode. Used by every typed-DAO *GetInstanceWithContext*
+// helper.
+func getRes(f Factory, ctx context.Context, gvr *client.GVR, path string) (runtime.Object, error) {
+	if cf, ok := f.(ContextualFactory); ok {
+		return cf.GetWithContext(ctx, gvr, path, true, labels.Everything())
+	}
+	return f.Get(gvr, path, true, labels.Everything())
 }
 
 // GVR returns a gvr.

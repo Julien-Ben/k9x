@@ -156,7 +156,11 @@ func (p *Pod) showContainers(app *App, _ ui.Tabular, _ *client.GVR, _ string) {
 }
 
 func (p *Pod) coContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, internal.KeyPath, p.GetTable().GetSelectedItem())
+	ctx = context.WithValue(ctx, internal.KeyPath, p.GetTable().GetSelectedItem())
+	if scope := p.GetTable().selectedContext(); scope != "" {
+		ctx = context.WithValue(ctx, internal.KeyScopeContext, scope)
+	}
+	return ctx
 }
 
 // Handlers...
@@ -230,7 +234,7 @@ func (p *Pod) shellCmd(evt *tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 
-	if err := containerShellIn(p.App(), p, path, ""); err != nil {
+	if err := containerShellIn(p.App(), p, path, "", p.GetTable().selectedContext()); err != nil {
 		p.App().Flash().Err(err)
 	}
 
@@ -248,7 +252,7 @@ func (p *Pod) attachCmd(evt *tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 
-	if err := containerAttachIn(p.App(), p, path, ""); err != nil {
+	if err := containerAttachIn(p.App(), p, path, "", p.GetTable().selectedContext()); err != nil {
 		p.App().Flash().Err(err)
 	}
 
@@ -316,6 +320,7 @@ func (p *Pod) transferCmd(*tcell.EventKey) *tcell.EventKey {
 		cliOpts := shellOpts{
 			background: true,
 			args:       opts,
+			context:    p.GetTable().selectedContext(),
 		}
 		op := trUpload
 		if args.Download {
@@ -355,9 +360,9 @@ func (p *Pod) transferCmd(*tcell.EventKey) *tcell.EventKey {
 // ----------------------------------------------------------------------------
 // Helpers...
 
-func containerShellIn(a *App, comp model.Component, path, co string) error {
+func containerShellIn(a *App, comp model.Component, path, co, ctxName string) error {
 	if co != "" {
-		resumeShellIn(a, comp, path, co)
+		resumeShellIn(a, comp, path, co, ctxName)
 		return nil
 	}
 
@@ -366,26 +371,26 @@ func containerShellIn(a *App, comp model.Component, path, co string) error {
 		return err
 	}
 	if dco, ok := dao.GetDefaultContainer(&pod.ObjectMeta, &pod.Spec); ok {
-		resumeShellIn(a, comp, path, dco)
+		resumeShellIn(a, comp, path, dco, ctxName)
 		return nil
 	}
 
 	cc := fetchContainers(&pod.ObjectMeta, &pod.Spec, false)
 	if len(cc) == 1 {
-		resumeShellIn(a, comp, path, cc[0])
+		resumeShellIn(a, comp, path, cc[0], ctxName)
 		return nil
 	}
 
 	picker := NewPicker()
 	picker.populate(cc)
 	picker.SetSelectedFunc(func(_ int, co, _ string, _ rune) {
-		resumeShellIn(a, comp, path, co)
+		resumeShellIn(a, comp, path, co, ctxName)
 	})
 
 	return a.inject(picker, false)
 }
 
-func resumeShellIn(a *App, c model.Component, path, co string) {
+func resumeShellIn(a *App, c model.Component, path, co, ctxName string) {
 	var err error
 	c.Stop()
 	defer func() {
@@ -397,10 +402,10 @@ func resumeShellIn(a *App, c model.Component, path, co string) {
 		})
 	}()
 
-	err = shellIn(a, path, co)
+	err = shellIn(a, path, co, ctxName)
 }
 
-func shellIn(a *App, fqn, co string) error {
+func shellIn(a *App, fqn, co, ctxName string) error {
 	platform, err := getPodOS(a.factory, fqn)
 	if err != nil {
 		slog.Warn("OS detection failed (assuming linux)", slogs.Error, err)
@@ -410,15 +415,16 @@ func shellIn(a *App, fqn, co string) error {
 	args := computeShellArgs(fqn, co, a.Conn().Config().Flags(), platform)
 	c := color.New(color.BgGreen).Add(color.FgBlack).Add(color.Bold)
 	return runK(a, &shellOpts{
-		clear:  true,
-		banner: c.Sprintf(bannerFmt, fqn, co),
-		args:   args},
-	)
+		clear:   true,
+		banner:  c.Sprintf(bannerFmt, fqn, co),
+		args:    args,
+		context: ctxName,
+	})
 }
 
-func containerAttachIn(a *App, comp model.Component, path, co string) error {
+func containerAttachIn(a *App, comp model.Component, path, co, ctxName string) error {
 	if co != "" {
-		resumeAttachIn(a, comp, path, co)
+		resumeAttachIn(a, comp, path, co, ctxName)
 		return nil
 	}
 
@@ -428,13 +434,13 @@ func containerAttachIn(a *App, comp model.Component, path, co string) error {
 	}
 	cc := fetchContainers(&pod.ObjectMeta, &pod.Spec, false)
 	if len(cc) == 1 {
-		resumeAttachIn(a, comp, path, cc[0])
+		resumeAttachIn(a, comp, path, cc[0], ctxName)
 		return nil
 	}
 	picker := NewPicker()
 	picker.populate(cc)
 	picker.SetSelectedFunc(func(_ int, co, _ string, _ rune) {
-		resumeAttachIn(a, comp, path, co)
+		resumeAttachIn(a, comp, path, co, ctxName)
 	})
 	if err := a.inject(picker, false); err != nil {
 		return err
@@ -443,17 +449,17 @@ func containerAttachIn(a *App, comp model.Component, path, co string) error {
 	return nil
 }
 
-func resumeAttachIn(a *App, c model.Component, path, co string) {
+func resumeAttachIn(a *App, c model.Component, path, co, ctxName string) {
 	c.Stop()
 	defer c.Start()
 
-	attachIn(a, path, co)
+	attachIn(a, path, co, ctxName)
 }
 
-func attachIn(a *App, path, co string) {
+func attachIn(a *App, path, co, ctxName string) {
 	args := buildShellArgs("attach", path, co, a.Conn().Config().Flags())
 	c := color.New(color.BgGreen).Add(color.FgBlack).Add(color.Bold)
-	if err := runK(a, &shellOpts{clear: true, banner: c.Sprintf(bannerFmt, path, co), args: args}); err != nil {
+	if err := runK(a, &shellOpts{clear: true, banner: c.Sprintf(bannerFmt, path, co), args: args, context: ctxName}); err != nil {
 		a.Flash().Errf("Attach exec failed: %s", err)
 	}
 }

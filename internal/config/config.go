@@ -145,9 +145,9 @@ func (c *Config) Refine(flags *genericclioptions.ConfigFlags, k9sFlags *Flags, c
 
 	if k9sFlags != nil && IsBoolSet(k9sFlags.AllContexts) {
 		c.K9s.MultiContextMode = true
-		// Multi-context mode is read-only for now (no per-row action routing).
-		// Force read-only to prevent mutations from hitting the wrong cluster.
-		c.K9s.ReadOnly = true
+		// Multi-context mutations now route per-row via internal.KeyScopeContext
+		// (P0.5 ContextualFactory / ClientFor). Users can opt back into
+		// --readonly explicitly; no force-apply here.
 	}
 
 	return data.EnsureDirPath(c.K9s.AppScreenDumpDir(), data.DefaultDirMod)

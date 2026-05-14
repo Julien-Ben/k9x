@@ -4,15 +4,14 @@
 package view
 
 import (
+	"context"
 	"errors"
 
+	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/ui"
 	batchv1 "k8s.io/api/batch/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // Job represents a job viewer.
@@ -35,21 +34,21 @@ func NewJob(gvr *client.GVR) ResourceViewer {
 	return &j
 }
 
-func (*Job) showPods(app *App, _ ui.Tabular, gvr *client.GVR, path string) {
-	o, err := app.factory.Get(gvr, path, true, labels.Everything())
+func (*Job) showPods(app *App, m ui.Tabular, _ *client.GVR, path string) {
+	scope := extractRowScope(m, path)
+	ctx := context.Background()
+	if scope != "" {
+		ctx = context.WithValue(ctx, internal.KeyScopeContext, scope)
+	}
+	var jdao dao.Job
+	jdao.Init(app.factory, client.JobGVR)
+	job, err := jdao.GetInstanceWithContext(ctx, path)
 	if err != nil {
 		app.Flash().Err(err)
 		return
 	}
 
-	var job batchv1.Job
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(o.(*unstructured.Unstructured).Object, &job)
-	if err != nil {
-		app.Flash().Err(err)
-		return
-	}
-
-	showPodsFromSelector(app, path, job.Spec.Selector)
+	showPodsFromSelector(app, path, job.Spec.Selector, scope)
 }
 
 func (j *Job) logOptions(prev bool) (*dao.LogOptions, error) {

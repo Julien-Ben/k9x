@@ -31,8 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-const multiContextNotAvailable = "Not available in multi-context mode"
-
 // Browser represents a generic resource browser.
 type Browser struct {
 	*Table
@@ -288,6 +286,17 @@ func (b *Browser) SetContextFn(f ContextFunc) { b.contextFn = f }
 // GetTable returns the underlying table.
 func (b *Browser) GetTable() *Table { return b.Table }
 
+// scopedContextForSelection annotates ctx with internal.KeyScopeContext for
+// the given row path, derived from the table's model. Used to dispatch
+// per-row mutations (delete, …) to the source cluster when the action loop
+// iterates multiple selections.
+func (b *Browser) scopedContextForSelection(ctx context.Context, path string) context.Context {
+	if scope := extractRowScope(b.GetModel(), path); scope != "" {
+		return context.WithValue(ctx, internal.KeyScopeContext, scope)
+	}
+	return ctx
+}
+
 // Aliases returns all available aliases.
 func (b *Browser) Aliases() sets.Set[string] {
 	return aliases(b.meta, b.app.command.AliasesFor(client.NewGVRFromMeta(b.meta)))
@@ -401,16 +410,13 @@ func (b *Browser) nsWarpCmd(*tcell.EventKey) *tcell.EventKey {
 }
 
 func (b *Browser) viewCmd(evt *tcell.EventKey) *tcell.EventKey {
-	if b.app.Config.K9s.MultiContextMode {
-		b.app.Flash().Warn(multiContextNotAvailable)
-		return nil
-	}
 	path := b.GetSelectedItem()
 	if path == "" {
 		return evt
 	}
 
 	v := NewLiveView(b.app, yamlAction, model.NewYAML(b.GVR(), path))
+	v.SetScopeContext(b.selectedContext())
 	if err := v.app.inject(v, false); err != nil {
 		v.app.Flash().Err(err)
 	}
@@ -462,16 +468,6 @@ func (b *Browser) filterCmd(evt *tcell.EventKey) *tcell.EventKey {
 }
 
 func (b *Browser) enterCmd(evt *tcell.EventKey) *tcell.EventKey {
-	if b.app.Config.K9s.MultiContextMode {
-		// Drill-down (Deployment→Pods, STS→Pods, etc.) uses the parent's
-		// label selector to list children. In multi mode the MultiFactory
-		// fans that selector to every cluster, so children from non-source
-		// contexts get pulled in (cross-cluster label collision). Block
-		// drill-down until per-row source-context routing is implemented
-		// in MVP.
-		b.app.Flash().Warn(multiContextNotAvailable)
-		return nil
-	}
 	path := b.GetSelectedItem()
 	if b.filterCmd(evt) == nil || path == "" {
 		return nil
@@ -503,10 +499,6 @@ func (b *Browser) refreshCmd(*tcell.EventKey) *tcell.EventKey {
 }
 
 func (b *Browser) deleteCmd(evt *tcell.EventKey) *tcell.EventKey {
-	if b.app.Config.K9s.MultiContextMode {
-		b.app.Flash().Warn(multiContextNotAvailable)
-		return nil
-	}
 	selections := b.GetSelectedItems()
 	if len(selections) == 0 {
 		return evt
@@ -516,6 +508,14 @@ func (b *Browser) deleteCmd(evt *tcell.EventKey) *tcell.EventKey {
 	defer b.Start()
 	{
 		msg := fmt.Sprintf("Delete %s %s?", b.GVR().R(), selections[0])
+		// Multi-context safety: when deleting a single row, name the source
+		// cluster in the prompt so the user can't confuse same-named
+		// resources across clusters. (§3.6 Flash-bar usage policy.)
+		if len(selections) == 1 {
+			if ctxName := b.selectedContext(); ctxName != "" {
+				msg = fmt.Sprintf("Delete %s %s in cluster %q?", b.GVR().R(), selections[0], ctxName)
+			}
+		}
 		if len(selections) > 1 {
 			msg = fmt.Sprintf("Delete %d marked %s?", len(selections), b.GVR())
 			if hidden := b.countHiddenMarks(selections); hidden > 0 {
@@ -548,10 +548,6 @@ func (b *Browser) countHiddenMarks(selections []string) int {
 }
 
 func (b *Browser) describeCmd(evt *tcell.EventKey) *tcell.EventKey {
-	if b.app.Config.K9s.MultiContextMode {
-		b.app.Flash().Warn(multiContextNotAvailable)
-		return nil
-	}
 	path := b.GetSelectedItem()
 	if path == "" {
 		return evt
@@ -562,10 +558,6 @@ func (b *Browser) describeCmd(evt *tcell.EventKey) *tcell.EventKey {
 }
 
 func (b *Browser) editCmd(evt *tcell.EventKey) *tcell.EventKey {
-	if b.app.Config.K9s.MultiContextMode {
-		b.app.Flash().Warn(multiContextNotAvailable)
-		return nil
-	}
 	path := b.GetSelectedItem()
 	if path == "" {
 		return evt
@@ -573,14 +565,14 @@ func (b *Browser) editCmd(evt *tcell.EventKey) *tcell.EventKey {
 
 	b.Stop()
 	defer b.Start()
-	if err := editRes(b.app, b.GVR(), path); err != nil {
+	if err := editRes(b.app, b.GVR(), path, b.selectedContext()); err != nil {
 		b.App().Flash().Err(err)
 	}
 
 	return nil
 }
 
-func editRes(app *App, gvr *client.GVR, path string) error {
+func editRes(app *App, gvr *client.GVR, path, ctxName string) error {
 	if path == "" {
 		return fmt.Errorf("nothing selected %q", path)
 	}
@@ -600,7 +592,7 @@ func editRes(app *App, gvr *client.GVR, path string) error {
 	if ns != client.BlankNamespace {
 		args = append(args, "-n", ns)
 	}
-	if err := runK(app, &shellOpts{clear: true, args: args}); err != nil {
+	if err := runK(app, &shellOpts{clear: true, args: args, context: ctxName}); err != nil {
 		app.Flash().Errf("Edit command failed: %s", err)
 	}
 
@@ -778,7 +770,7 @@ func (b *Browser) simpleDelete(selections []string, msg string) {
 				b.app.Flash().Errf("Invalid nuker %T", b.accessor)
 				continue
 			}
-			if err := nuker.Delete(context.Background(), sel, nil, dao.DefaultGrace); err != nil {
+			if err := nuker.Delete(b.scopedContextForSelection(context.Background(), sel), sel, nil, dao.DefaultGrace); err != nil {
 				b.app.Flash().Errf("Delete failed with `%s", err)
 			} else {
 				b.app.factory.DeleteForwarder(sel)
@@ -802,7 +794,7 @@ func (b *Browser) resourceDelete(selections []string, msg string) {
 			if force {
 				grace = dao.ForceGrace
 			}
-			if err := b.GetModel().Delete(b.defaultContext(), sel, propagation, grace); err != nil {
+			if err := b.GetModel().Delete(b.scopedContextForSelection(b.defaultContext(), sel), sel, propagation, grace); err != nil {
 				b.app.Flash().Errf("Delete failed with `%s", err)
 			} else {
 				b.app.factory.DeleteForwarder(sel)

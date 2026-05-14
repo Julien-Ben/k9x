@@ -4,8 +4,10 @@
 package view
 
 import (
+	"context"
 	"errors"
 
+	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/ui"
@@ -51,18 +53,29 @@ func (s *StatefulSet) logOptions(prev bool) (*dao.LogOptions, error) {
 	return podLogOptions(s.App(), path, prev, &sts.ObjectMeta, &sts.Spec.Template.Spec), nil
 }
 
-func (s *StatefulSet) showPods(app *App, _ ui.Tabular, _ *client.GVR, path string) {
-	i, err := s.getInstance(path)
+func (s *StatefulSet) showPods(app *App, m ui.Tabular, _ *client.GVR, path string) {
+	scope := extractRowScope(m, path)
+	i, err := s.getInstanceForScope(path, scope)
 	if err != nil {
 		app.Flash().Err(err)
 		return
 	}
 
-	showPodsFromSelector(app, path, i.Spec.Selector)
+	showPodsFromSelector(app, path, i.Spec.Selector, scope)
 }
 
 func (s *StatefulSet) getInstance(path string) (*appsv1.StatefulSet, error) {
-	var sts dao.StatefulSet
+	return s.getInstanceForScope(path, "")
+}
 
-	return sts.GetInstance(s.App().factory, path)
+// getInstanceForScope fetches the statefulset from the cluster identified by
+// scopeCtx ("" = primary). Used by drill-down so multi-context rows resolve
+// to their source cluster.
+func (s *StatefulSet) getInstanceForScope(path, scopeCtx string) (*appsv1.StatefulSet, error) {
+	var sts dao.StatefulSet
+	ctx := context.Background()
+	if scopeCtx != "" {
+		ctx = context.WithValue(ctx, internal.KeyScopeContext, scopeCtx)
+	}
+	return sts.GetInstanceWithContext(ctx, s.App().factory, path)
 }

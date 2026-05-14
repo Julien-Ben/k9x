@@ -42,6 +42,17 @@ type LiveView struct {
 	fullScreen                bool
 	managedField              bool
 	autoRefresh               bool
+	// scopeContext, when non-empty, is stashed in the view's context as
+	// internal.KeyScopeContext so MultiFactory.GetWithContext routes describe
+	// / YAML fetches to the source cluster of the originating row.
+	scopeContext string
+}
+
+// SetScopeContext records the source-context name of the originating row so
+// the view's underlying model fetches resources from the correct cluster in
+// multi-context mode.
+func (v *LiveView) SetScopeContext(ctxName string) {
+	v.scopeContext = ctxName
 }
 
 // NewLiveView returns a live viewer.
@@ -186,7 +197,7 @@ func (v *LiveView) editCmd(evt *tcell.EventKey) *tcell.EventKey {
 	}
 	v.Stop()
 	defer v.Start()
-	if err := editRes(v.app, v.model.GVR(), path); err != nil {
+	if err := editRes(v.app, v.model.GVR(), path, v.scopeContext); err != nil {
 		v.app.Flash().Err(err)
 	}
 
@@ -247,7 +258,11 @@ func (v *LiveView) Start() {
 }
 
 func (v *LiveView) defaultCtx() context.Context {
-	return context.WithValue(context.Background(), internal.KeyFactory, v.app.factory)
+	ctx := context.WithValue(context.Background(), internal.KeyFactory, v.app.factory)
+	if v.scopeContext != "" {
+		ctx = context.WithValue(ctx, internal.KeyScopeContext, v.scopeContext)
+	}
+	return ctx
 }
 
 // Stop terminates the updater.

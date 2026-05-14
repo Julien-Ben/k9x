@@ -182,7 +182,7 @@ func (w *Workload) editCmd(evt *tcell.EventKey) *tcell.EventKey {
 
 	w.Stop()
 	defer w.Start()
-	if err := editRes(w.App(), gvr, fqn); err != nil {
+	if err := editRes(w.App(), gvr, fqn, ""); err != nil {
 		w.App().Flash().Err(err)
 	}
 

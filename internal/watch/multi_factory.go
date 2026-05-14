@@ -4,11 +4,15 @@
 package watch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"sync"
 
+	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/render"
 	"github.com/derailed/k9s/internal/slogs"
@@ -85,11 +89,40 @@ func (m *MultiFactory) Client() client.Connection {
 	return m.children[m.primary].Client()
 }
 
+// ClientFor returns the client.Connection for the child identified by
+// internal.KeyScopeContext on ctx, falling back to the primary's connection
+// when the key is absent / empty / unknown. DAOs use this to dispatch
+// mutations (delete, restart, scale, …) to the row's source cluster instead
+// of always hitting the primary.
+func (m *MultiFactory) ClientFor(ctx context.Context) client.Connection {
+	m.mx.RLock()
+	defer m.mx.RUnlock()
+	if scope, ok := ctx.Value(internal.KeyScopeContext).(string); ok && scope != "" {
+		if child, exists := m.children[scope]; exists {
+			return child.Client()
+		}
+	}
+	return m.children[m.primary].Client()
+}
+
 // List fans out across all children in parallel, deep-copies each returned
 // object, and tags it with the source-context annotation. The merged slice is
 // returned. The first error encountered aborts the whole call (demo behavior;
 // MVP will isolate per-context errors).
 func (m *MultiFactory) List(gvr *client.GVR, ns string, wait bool, sel labels.Selector) ([]runtime.Object, error) {
+	return m.listImpl(nil, gvr, ns, wait, sel)
+}
+
+// ListWithContext is the context-aware variant. When internal.KeyScopeContext
+// is present as a non-empty string in ctx, fan-out is constrained to that one
+// child context (used by drill-down navigation so child views surface
+// resources only from the parent row's source cluster). Otherwise behaves
+// like List.
+func (m *MultiFactory) ListWithContext(ctx context.Context, gvr *client.GVR, ns string, wait bool, sel labels.Selector) ([]runtime.Object, error) {
+	return m.listImpl(ctx, gvr, ns, wait, sel)
+}
+
+func (m *MultiFactory) listImpl(ctx context.Context, gvr *client.GVR, ns string, wait bool, sel labels.Selector) ([]runtime.Object, error) {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
@@ -99,12 +132,26 @@ func (m *MultiFactory) List(gvr *client.GVR, ns string, wait bool, sel labels.Se
 		err     error
 	}
 
-	results := make([]childResult, 0, len(m.children))
+	// Iterate children in a deterministic order so the merged row sequence is
+	// stable across refresh ticks (avoids visible row reshuffling).
+	ctxNames := slices.Sorted(maps.Keys(m.children))
+	// Honor KeyScopeContext: constrain fan-out to a single child if set.
+	if ctx != nil {
+		if scope, ok := ctx.Value(internal.KeyScopeContext).(string); ok && scope != "" {
+			if _, exists := m.children[scope]; exists {
+				ctxNames = []string{scope}
+			} else {
+				return nil, fmt.Errorf("scope context %q not in children", scope)
+			}
+		}
+	}
+	results := make([]childResult, 0, len(ctxNames))
 	var (
 		mu sync.Mutex
 		wg sync.WaitGroup
 	)
-	for ctxName, child := range m.children {
+	for _, ctxName := range ctxNames {
+		child := m.children[ctxName]
 		wg.Add(1)
 		go func(name string, c childFactory) {
 			defer wg.Done()
@@ -115,6 +162,19 @@ func (m *MultiFactory) List(gvr *client.GVR, ns string, wait bool, sel labels.Se
 		}(ctxName, child)
 	}
 	wg.Wait()
+
+	// Sort results back into deterministic order — goroutines complete in
+	// arbitrary order so the slice must be re-ordered to match ctxNames.
+	slices.SortFunc(results, func(a, b childResult) int {
+		switch {
+		case a.ctxName < b.ctxName:
+			return -1
+		case a.ctxName > b.ctxName:
+			return 1
+		default:
+			return 0
+		}
+	})
 
 	var (
 		merged []runtime.Object
@@ -157,14 +217,35 @@ func tagWithSourceContext(o runtime.Object, ctxName string) (runtime.Object, err
 	return copy, nil
 }
 
-// Get delegates to the primary child. Non-primary routing requires path-prefix
-// encoding (see MULTI_CONTEXT_PLAN.md §"describe/yaml architecture friction")
-// and is deferred to MVP. In demo mode, describe/yaml are short-circuited in
-// the browser before they can reach here.
+// Get delegates to the primary child. Used by code paths that don't carry a
+// context.Context; callers that have one should prefer GetWithContext to honor
+// internal.KeyScopeContext for per-row routing.
 func (m *MultiFactory) Get(gvr *client.GVR, path string, wait bool, sel labels.Selector) (runtime.Object, error) {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 	return m.children[m.primary].Get(gvr, path, wait, sel)
+}
+
+// GetWithContext routes to the child identified by internal.KeyScopeContext.
+// Falls back to the primary when the key is absent or empty. Returned objects
+// are tagged with the source-context annotation so renderers can populate
+// row.Source consistently with the List path.
+func (m *MultiFactory) GetWithContext(ctx context.Context, gvr *client.GVR, path string, wait bool, sel labels.Selector) (runtime.Object, error) {
+	m.mx.RLock()
+	defer m.mx.RUnlock()
+
+	target := m.primary
+	if scope, ok := ctx.Value(internal.KeyScopeContext).(string); ok && scope != "" {
+		if _, exists := m.children[scope]; !exists {
+			return nil, fmt.Errorf("scope context %q not in children", scope)
+		}
+		target = scope
+	}
+	o, err := m.children[target].Get(gvr, path, wait, sel)
+	if err != nil {
+		return nil, err
+	}
+	return tagWithSourceContext(o, target)
 }
 
 // ForResource delegates to the primary. Used by `List` internals on the

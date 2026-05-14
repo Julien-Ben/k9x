@@ -14,7 +14,6 @@ import (
 	"github.com/derailed/k9s/internal/render"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
@@ -41,8 +40,14 @@ func (r *ReplicaSet) ListImages(_ context.Context, fqn string) ([]string, error)
 }
 
 // Load returns a given instance.
-func (*ReplicaSet) Load(f Factory, path string) (*appsv1.ReplicaSet, error) {
-	o, err := f.Get(client.RsGVR, path, true, labels.Everything())
+func (r *ReplicaSet) Load(f Factory, path string) (*appsv1.ReplicaSet, error) {
+	return r.LoadWithContext(context.Background(), f, path)
+}
+
+// LoadWithContext fetches a replicaset, honoring internal.KeyScopeContext on
+// ctx for per-row routing in multi-context mode.
+func (*ReplicaSet) LoadWithContext(ctx context.Context, f Factory, path string) (*appsv1.ReplicaSet, error) {
+	o, err := getRes(f, ctx, client.RsGVR, path)
 	if err != nil {
 		return nil, err
 	}

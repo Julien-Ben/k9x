@@ -210,6 +210,9 @@ func (y *YAML) ToYAML(ctx context.Context, gvr *client.GVR, path string, showMan
 		desc.SetDecodeData(y.decode)
 	}
 
+	if cd, ok := meta.DAO.(dao.ContextualDescriber); ok {
+		return cd.ToYAMLWithContext(ctx, path, showManaged)
+	}
 	return desc.ToYAML(path, showManaged)
 }
 

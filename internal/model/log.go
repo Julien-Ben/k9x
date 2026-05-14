@@ -227,6 +227,9 @@ func (l *Log) load(ctx context.Context) error {
 
 	l.cancel()
 	ctx = context.WithValue(ctx, internal.KeyFactory, l.factory)
+	if l.logOptions != nil && l.logOptions.ScopeContext != "" {
+		ctx = context.WithValue(ctx, internal.KeyScopeContext, l.logOptions.ScopeContext)
+	}
 	ctx, l.cancelFn = context.WithCancel(ctx)
 
 	cc, err := loggable.TailLogs(ctx, l.logOptions)

@@ -36,6 +36,7 @@ func (r Row) Customize(cols []int) Row {
 	out := NewRow(len(cols))
 	r.Fields.Customize(cols, out.Fields)
 	out.ID = r.ID
+	out.Source = r.Source
 
 	return out
 }
@@ -43,6 +44,9 @@ func (r Row) Customize(cols []int) Row {
 // Diff returns true if row differ or false otherwise.
 func (r Row) Diff(ro Row, ageCol int) bool {
 	if r.ID != ro.ID {
+		return true
+	}
+	if r.Source != ro.Source {
 		return true
 	}
 	return r.Fields.Diff(ro.Fields, ageCol)
@@ -53,6 +57,7 @@ func (r Row) Clone() Row {
 	return Row{
 		ID:     r.ID,
 		Fields: r.Fields.Clone(),
+		Source: r.Source,
 	}
 }
 

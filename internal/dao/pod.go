@@ -18,7 +18,6 @@ import (
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/render"
 	"github.com/derailed/k9s/internal/slogs"
-	"github.com/derailed/k9s/internal/watch"
 	"github.com/derailed/tview"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -148,10 +147,13 @@ func (p *Pod) List(ctx context.Context, ns string) ([]runtime.Object, error) {
 	return res, nil
 }
 
-// Logs fetch container logs for a given pod and container.
-func (p *Pod) Logs(path string, opts *v1.PodLogOptions) (*restclient.Request, error) {
+// Logs fetch container logs for a given pod and container. ctx may carry
+// internal.KeyScopeContext to route the dial to the row's source cluster in
+// multi-context mode; falls back to the primary client otherwise.
+func (p *Pod) Logs(ctx context.Context, path string, opts *v1.PodLogOptions) (*restclient.Request, error) {
 	ns, n := client.Namespaced(path)
-	auth, err := p.Client().CanI(ns, client.NewGVR(client.PodGVR.String()+":log"), n, client.GetAccess)
+	conn := p.clientFor(ctx)
+	auth, err := conn.CanI(ns, client.NewGVR(client.PodGVR.String()+":log"), n, client.GetAccess)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +161,7 @@ func (p *Pod) Logs(path string, opts *v1.PodLogOptions) (*restclient.Request, er
 		return nil, fmt.Errorf("user is not authorized to view pod logs")
 	}
 
-	dial, err := p.Client().DialLogs()
+	dial, err := conn.DialLogs()
 	if err != nil {
 		return nil, err
 	}
@@ -211,11 +213,11 @@ func (p *Pod) GetInstance(fqn string) (*v1.Pod, error) {
 
 // TailLogs tails a given container logs.
 func (p *Pod) TailLogs(ctx context.Context, opts *LogOptions) ([]LogChan, error) {
-	fac, ok := ctx.Value(internal.KeyFactory).(*watch.Factory)
+	fac, ok := ctx.Value(internal.KeyFactory).(Factory)
 	if !ok {
 		return nil, errors.New("no factory in context")
 	}
-	o, err := fac.Get(p.gvr, opts.Path, true, labels.Everything())
+	o, err := getRes(fac, ctx, p.gvr, opts.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +378,7 @@ func tailLogs(ctx context.Context, logger Logger, opts *LogOptions) LogChan {
 		delay := logBackoffInitial
 
 		for range logRetryCount {
-			req, err := logger.Logs(opts.Path, podOpts)
+			req, err := logger.Logs(ctx, opts.Path, podOpts)
 			if err != nil {
 				slog.Error("Log request failed",
 					slogs.Container, opts.Info(),
@@ -555,7 +557,8 @@ func (p *Pod) GetPodSpec(path string) (*v1.PodSpec, error) {
 // SetImages sets container images.
 func (p *Pod) SetImages(ctx context.Context, path string, imageSpecs ImageSpecs) error {
 	ns, n := client.Namespaced(path)
-	auth, err := p.Client().CanI(ns, p.gvr, n, client.PatchAccess)
+	conn := p.clientFor(ctx)
+	auth, err := conn.CanI(ns, p.gvr, n, client.PatchAccess)
 	if err != nil {
 		return err
 	}
@@ -573,7 +576,7 @@ func (p *Pod) SetImages(ctx context.Context, path string, imageSpecs ImageSpecs)
 	if err != nil {
 		return err
 	}
-	dial, err := p.Client().Dial()
+	dial, err := conn.Dial()
 	if err != nil {
 		return err
 	}

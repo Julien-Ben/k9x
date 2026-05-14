@@ -13,6 +13,29 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+func TestIsNestedGVR(t *testing.T) {
+	uu := map[string]struct {
+		gvr  *client.GVR
+		want bool
+	}{
+		"containers":   {gvr: client.CoGVR, want: true},
+		"references":   {gvr: client.RefGVR, want: true},
+		"portforwards": {gvr: client.PfGVR, want: true},
+		"benchmarks":   {gvr: client.BeGVR, want: true},
+		"helm-history": {gvr: client.HmhGVR, want: true},
+		"pods":         {gvr: client.PodGVR, want: false},
+		"deployments":  {gvr: client.DpGVR, want: false},
+		"workloads":    {gvr: client.WkGVR, want: false},
+		"contexts":     {gvr: client.CtGVR, want: false},
+	}
+	for k := range uu {
+		u := uu[k]
+		t.Run(k, func(t *testing.T) {
+			assert.Equal(t, u.want, client.IsNestedGVR(u.gvr))
+		})
+	}
+}
+
 func TestGVRSort(t *testing.T) {
 	gg := client.GVRs{
 		client.PodGVR,

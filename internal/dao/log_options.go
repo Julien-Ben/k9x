@@ -19,15 +19,20 @@ type LogOptions struct {
 	Container        string
 	DefaultContainer string
 	SinceTime        string
-	Lines            int64
-	SinceSeconds     int64
-	Head             bool
-	Previous         bool
-	SingleContainer  bool
-	MultiPods        bool
-	ShowTimestamp    bool
-	AllContainers    bool
-	LogBufferSize    int
+	// ScopeContext carries the kubeconfig context name the source row came
+	// from in multi-context mode. Empty in single-context mode. Threaded into
+	// the streaming context via internal.KeyScopeContext so TailLogs routes
+	// to the right cluster's API.
+	ScopeContext    string
+	Lines           int64
+	SinceSeconds    int64
+	Head            bool
+	Previous        bool
+	SingleContainer bool
+	MultiPods       bool
+	ShowTimestamp   bool
+	AllContainers   bool
+	LogBufferSize   int
 }
 
 // Info returns the option pod and container info.
@@ -55,6 +60,7 @@ func (o *LogOptions) Clone() *LogOptions {
 		SinceSeconds:     o.SinceSeconds,
 		AllContainers:    o.AllContainers,
 		LogBufferSize:    o.LogBufferSize,
+		ScopeContext:     o.ScopeContext,
 	}
 }
 

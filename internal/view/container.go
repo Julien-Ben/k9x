@@ -175,7 +175,7 @@ func (c *Container) shellCmd(evt *tcell.EventKey) *tcell.EventKey {
 			c.App().Flash().Err(err)
 		}
 	}()
-	err = shellIn(c.App(), c.GetTable().Path, path)
+	err = shellIn(c.App(), c.GetTable().Path, path, c.GetTable().selectedContext())
 
 	return nil
 }
@@ -188,7 +188,7 @@ func (c *Container) attachCmd(evt *tcell.EventKey) *tcell.EventKey {
 
 	c.Stop()
 	defer c.Start()
-	attachIn(c.App(), c.GetTable().Path, sel)
+	attachIn(c.App(), c.GetTable().Path, sel, c.GetTable().selectedContext())
 
 	return nil
 }

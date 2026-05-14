@@ -59,8 +59,15 @@ func (s *StatefulSet) Restart(ctx context.Context, path string, opts *metav1.Pat
 }
 
 // GetInstance returns a statefulset instance.
-func (*StatefulSet) GetInstance(f Factory, fqn string) (*appsv1.StatefulSet, error) {
-	o, err := f.Get(client.StsGVR, fqn, true, labels.Everything())
+func (s *StatefulSet) GetInstance(f Factory, fqn string) (*appsv1.StatefulSet, error) {
+	return s.GetInstanceWithContext(context.Background(), f, fqn)
+}
+
+// GetInstanceWithContext returns a statefulset instance, honoring
+// internal.KeyScopeContext on ctx so multi-context drill-down / restart land
+// on the row's source cluster.
+func (*StatefulSet) GetInstanceWithContext(ctx context.Context, f Factory, fqn string) (*appsv1.StatefulSet, error) {
+	o, err := getRes(f, ctx, client.StsGVR, fqn)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +83,7 @@ func (*StatefulSet) GetInstance(f Factory, fqn string) (*appsv1.StatefulSet, err
 
 // TailLogs tail logs for all pods represented by this StatefulSet.
 func (s *StatefulSet) TailLogs(ctx context.Context, opts *LogOptions) ([]LogChan, error) {
-	sts, err := s.getStatefulSet(opts.Path)
+	sts, err := s.GetInstanceWithContext(ctx, s.getFactory(), opts.Path)
 	if err != nil {
 		return nil, errors.New("expecting StatefulSet resource")
 	}
@@ -222,7 +229,8 @@ func (s *StatefulSet) GetPodSpec(path string) (*v1.PodSpec, error) {
 // SetImages sets container images.
 func (s *StatefulSet) SetImages(ctx context.Context, path string, imageSpecs ImageSpecs) error {
 	ns, n := client.Namespaced(path)
-	auth, err := s.Client().CanI(ns, client.StsGVR, n, client.PatchAccess)
+	conn := s.clientFor(ctx)
+	auth, err := conn.CanI(ns, client.StsGVR, n, client.PatchAccess)
 	if err != nil {
 		return err
 	}
@@ -233,7 +241,7 @@ func (s *StatefulSet) SetImages(ctx context.Context, path string, imageSpecs Ima
 	if err != nil {
 		return err
 	}
-	dial, err := s.Client().Dial()
+	dial, err := conn.Dial()
 	if err != nil {
 		return err
 	}

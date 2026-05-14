@@ -554,7 +554,9 @@ func (t *Table) buildRow(r int, re, ore model1.RowEvent, h model1.Header, pads M
 			cell.SetTextColor(t.styles.Table().MarkColor.Color())
 		}
 		if col == 0 {
-			cell.SetReference(re.Row.ID)
+			// Store the full Row (not just the ID) so action handlers can
+			// recover Source for per-row context routing in multi mode.
+			cell.SetReference(re.Row)
 		}
 		t.SetCell(r, col, cell)
 		col++

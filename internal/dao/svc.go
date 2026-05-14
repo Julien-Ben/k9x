@@ -51,7 +51,13 @@ func (s *Service) Pod(fqn string) (string, error) {
 
 // GetInstance returns a service instance.
 func (s *Service) GetInstance(fqn string) (*v1.Service, error) {
-	o, err := s.getFactory().Get(s.gvr, fqn, true, labels.Everything())
+	return s.GetInstanceWithContext(context.Background(), fqn)
+}
+
+// GetInstanceWithContext fetches a service, honoring internal.KeyScopeContext
+// on ctx for per-row routing in multi-context mode.
+func (s *Service) GetInstanceWithContext(ctx context.Context, fqn string) (*v1.Service, error) {
+	o, err := getRes(s.getFactory(), ctx, s.gvr, fqn)
 	if err != nil {
 		return nil, err
 	}

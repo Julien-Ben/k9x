@@ -37,4 +37,9 @@ const (
 	KeyPodCounting   ContextKey = "podCounting"
 	KeyEnableImgScan ContextKey = "vulScan"
 	KeyMultiContext  ContextKey = "multiContext"
+	// KeyScopeContext, when present and non-empty in a context.Context,
+	// constrains MultiFactory.List/Get fan-out to that single child context.
+	// Used by drill-down navigation so a child view (e.g. Deploy → Pods) only
+	// surfaces resources from the parent row's source cluster.
+	KeyScopeContext ContextKey = "scopeContext"
 )

@@ -4,6 +4,7 @@
 package ui
 
 import (
+	"github.com/derailed/k9s/internal/model1"
 	"github.com/derailed/tcell/v2"
 	"github.com/derailed/tview"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -55,15 +56,48 @@ func (s *SelectTable) GetSelectedItems() []string {
 	return s.marks.UnsortedList()
 }
 
+// cellRowID extracts the row's path ID from a cell-0 reference. Supports the
+// canonical case (reference is a model1.Row) and the legacy case (reference
+// is a bare string) so callers added before the multi-context work keep
+// functioning.
+func cellRowID(ref any) (string, bool) {
+	switch v := ref.(type) {
+	case model1.Row:
+		return v.ID, true
+	case string:
+		return v, true
+	default:
+		return "", false
+	}
+}
+
 // GetRowID returns the row id at given location.
 func (s *SelectTable) GetRowID(index int) (string, bool) {
 	cell := s.GetCell(index, 0)
 	if cell == nil {
 		return "", false
 	}
-	id, ok := cell.GetReference().(string)
+	return cellRowID(cell.GetReference())
+}
 
-	return id, ok
+// GetSelectedRowRef returns the currently selected row by reading the cell-0
+// reference, or nil if no row is selected or the reference doesn't carry a
+// Row. Used by action handlers in multi-context mode to recover the source
+// context name from row.Source. Distinct from Table.GetSelectedRow(path),
+// which does a path-based model lookup.
+func (s *SelectTable) GetSelectedRowRef() *model1.Row {
+	if s.GetSelectedRowIndex() == 0 || s.model.Empty() {
+		return nil
+	}
+	cell := s.GetCell(s.GetSelectedRowIndex(), 0)
+	if cell == nil {
+		return nil
+	}
+	row, ok := cell.GetReference().(model1.Row)
+	if !ok {
+		return nil
+	}
+	return &row
 }
 
 // GetSelectedItem returns the currently selected item name.
@@ -71,7 +105,7 @@ func (s *SelectTable) GetSelectedItem() string {
 	if s.GetSelectedRowIndex() == 0 || s.model.Empty() {
 		return ""
 	}
-	sel, ok := s.GetCell(s.GetSelectedRowIndex(), 0).GetReference().(string)
+	sel, ok := cellRowID(s.GetCell(s.GetSelectedRowIndex(), 0).GetReference())
 	if !ok {
 		return ""
 	}

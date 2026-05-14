@@ -72,6 +72,7 @@ func (l *LogsExtender) showLogs(path string, prev bool) {
 			return
 		}
 	}
+	opts.ScopeContext = l.GetTable().selectedContext()
 	if err := l.App().inject(NewLog(l.GVR(), opts), false); err != nil {
 		l.App().Flash().Err(err)
 	}

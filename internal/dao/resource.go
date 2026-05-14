@@ -33,7 +33,15 @@ func (r *Resource) List(ctx context.Context, ns string) ([]runtime.Object, error
 		lsel = sel
 	}
 
-	oo, err := r.getFactory().List(r.gvr, ns, false, lsel)
+	var (
+		oo  []runtime.Object
+		err error
+	)
+	if cf, ok := r.getFactory().(ContextualFactory); ok {
+		oo, err = cf.ListWithContext(ctx, r.gvr, ns, false, lsel)
+	} else {
+		oo, err = r.getFactory().List(r.gvr, ns, false, lsel)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +82,10 @@ func filterByFieldSelector(ctx context.Context, oo []runtime.Object) ([]runtime.
 }
 
 // Get returns a resource instance if found, else an error.
-func (r *Resource) Get(_ context.Context, path string) (runtime.Object, error) {
+func (r *Resource) Get(ctx context.Context, path string) (runtime.Object, error) {
+	if cf, ok := r.getFactory().(ContextualFactory); ok {
+		return cf.GetWithContext(ctx, r.gvr, path, true, labels.Everything())
+	}
 	return r.getFactory().Get(r.gvr, path, true, labels.Everything())
 }
 

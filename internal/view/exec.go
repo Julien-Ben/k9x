@@ -49,6 +49,11 @@ type shellOpts struct {
 	binary            string
 	banner            string
 	args              []string
+	// context, when non-empty, overrides the kubectl --context flag in
+	// runK/runKu. Used in multi-context mode so shell-outs (exec, edit, cp,
+	// attach, …) target the selected row's source cluster instead of the
+	// active/primary context.
+	context string
 }
 
 func (s shellOpts) String() string {
@@ -73,7 +78,11 @@ func runK(a *App, opts *shellOpts) error {
 	if isInsecure := a.Conn().Config().Flags().Insecure; isInsecure != nil && *isInsecure {
 		args = append(args, "--insecure-skip-tls-verify")
 	}
-	args = append(args, "--context", a.Config.K9s.ActiveContextName())
+	ctxName := opts.context
+	if ctxName == "" {
+		ctxName = a.Config.K9s.ActiveContextName()
+	}
+	args = append(args, "--context", ctxName)
 	if cfg := a.Conn().Config().Flags().KubeConfig; cfg != nil && *cfg != "" {
 		args = append(args, "--kubeconfig", *cfg)
 	}
@@ -269,7 +278,11 @@ func runKu(ctx context.Context, a *App, opts *shellOpts) (string, error) {
 	if g, err := a.Conn().Config().ImpersonateGroups(); err == nil {
 		args = append(args, "--as-group", g)
 	}
-	args = append(args, "--context", a.Config.K9s.ActiveContextName())
+	ctxName := opts.context
+	if ctxName == "" {
+		ctxName = a.Config.K9s.ActiveContextName()
+	}
+	args = append(args, "--context", ctxName)
 	if cfg := a.Conn().Config().Flags().KubeConfig; cfg != nil && *cfg != "" {
 		args = append(args, "--kubeconfig", *cfg)
 	}

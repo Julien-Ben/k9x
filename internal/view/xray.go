@@ -354,7 +354,7 @@ func (x *Xray) shellCmd(*tcell.EventKey) *tcell.EventKey {
 		path = *spec.ParentPath()
 	}
 
-	if err := containerShellIn(x.app, x, path, co); err != nil {
+	if err := containerShellIn(x.app, x, path, co, ""); err != nil {
 		x.app.Flash().Err(err)
 	}
 
@@ -377,7 +377,7 @@ func (x *Xray) attachCmd(*tcell.EventKey) *tcell.EventKey {
 		path = *spec.ParentPath()
 	}
 
-	if err := containerAttachIn(x.app, x, path, co); err != nil {
+	if err := containerAttachIn(x.app, x, path, co, ""); err != nil {
 		x.app.Flash().Err(err)
 	}
 

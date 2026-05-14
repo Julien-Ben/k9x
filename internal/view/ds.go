@@ -4,8 +4,10 @@
 package view
 
 import (
+	"context"
 	"errors"
 
+	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/ui"
@@ -36,17 +38,22 @@ func NewDaemonSet(gvr *client.GVR) ResourceViewer {
 	return &d
 }
 
-func (d *DaemonSet) showPods(app *App, _ ui.Tabular, _ *client.GVR, path string) {
+func (d *DaemonSet) showPods(app *App, m ui.Tabular, _ *client.GVR, path string) {
 	var res dao.DaemonSet
 	res.Init(app.factory, d.GVR())
 
-	ds, err := res.GetInstance(path)
+	scope := extractRowScope(m, path)
+	ctx := context.Background()
+	if scope != "" {
+		ctx = context.WithValue(ctx, internal.KeyScopeContext, scope)
+	}
+	ds, err := res.GetInstanceWithContext(ctx, path)
 	if err != nil {
 		d.App().Flash().Err(err)
 		return
 	}
 
-	showPodsFromSelector(app, path, ds.Spec.Selector)
+	showPodsFromSelector(app, path, ds.Spec.Selector, scope)
 }
 
 func (d *DaemonSet) logOptions(prev bool) (*dao.LogOptions, error) {

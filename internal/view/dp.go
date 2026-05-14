@@ -4,8 +4,10 @@
 package view
 
 import (
+	"context"
 	"errors"
 
+	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/ui"
@@ -67,51 +69,64 @@ func (d *Deploy) replicaSetsCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if dName == "" {
 		return evt
 	}
-	dp, err := d.getInstance(dName)
+	scope := extractRowScope(d.GetTable().GetModel(), dName)
+	dp, err := d.getInstanceForScope(dName, scope)
 	if err != nil {
 		d.App().Flash().Err(err)
 		return nil
 	}
-	showReplicasetsFromSelector(d.App(), dName, dp.Spec.Selector)
+	showReplicasetsFromSelector(d.App(), dName, dp.Spec.Selector, scope)
 	return nil
 }
 
-func (d *Deploy) showPods(app *App, _ ui.Tabular, _ *client.GVR, fqn string) {
-	dp, err := d.getInstance(fqn)
+func (d *Deploy) showPods(app *App, m ui.Tabular, _ *client.GVR, fqn string) {
+	scope := extractRowScope(m, fqn)
+	dp, err := d.getInstanceForScope(fqn, scope)
 	if err != nil {
 		app.Flash().Err(err)
 		return
 	}
 
-	showPodsFromSelector(app, fqn, dp.Spec.Selector)
+	showPodsFromSelector(app, fqn, dp.Spec.Selector, scope)
 }
 
 func (d *Deploy) getInstance(fqn string) (*appsv1.Deployment, error) {
+	return d.getInstanceForScope(fqn, "")
+}
+
+// getInstanceForScope fetches the deployment from the cluster identified by
+// scopeCtx ("" = primary / single-context). Used by drill-down + restart so
+// multi-context rows resolve to their source cluster.
+func (d *Deploy) getInstanceForScope(fqn, scopeCtx string) (*appsv1.Deployment, error) {
 	var dp dao.Deployment
 	dp.Init(d.App().factory, d.GVR())
 
-	return dp.GetInstance(fqn)
+	ctx := context.Background()
+	if scopeCtx != "" {
+		ctx = context.WithValue(ctx, internal.KeyScopeContext, scopeCtx)
+	}
+	return dp.GetInstanceWithContext(ctx, fqn)
 }
 
 // ----------------------------------------------------------------------------
 // Helpers...
 
-func showPodsFromSelector(app *App, path string, sel *metav1.LabelSelector) {
+func showPodsFromSelector(app *App, path string, sel *metav1.LabelSelector, scopeCtx string) {
 	l, err := metav1.LabelSelectorAsSelector(sel)
 	if err != nil {
 		app.Flash().Err(err)
 		return
 	}
 
-	showPods(app, path, l, "")
+	showPods(app, path, l, "", scopeCtx)
 }
 
-func showReplicasetsFromSelector(app *App, path string, sel *metav1.LabelSelector) {
+func showReplicasetsFromSelector(app *App, path string, sel *metav1.LabelSelector, scopeCtx string) {
 	l, err := metav1.LabelSelectorAsSelector(sel)
 	if err != nil {
 		app.Flash().Err(err)
 		return
 	}
 
-	showReplicasets(app, path, l, "")
+	showReplicasets(app, path, l, "", scopeCtx)
 }

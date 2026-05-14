@@ -14,7 +14,6 @@ import (
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/render"
 	"github.com/derailed/k9s/internal/slogs"
-	"github.com/derailed/k9s/internal/watch"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,7 +55,7 @@ func (d *DaemonSet) Restart(ctx context.Context, path string, opts *metav1.Patch
 
 // TailLogs tail logs for all pods represented by this DaemonSet.
 func (d *DaemonSet) TailLogs(ctx context.Context, opts *LogOptions) ([]LogChan, error) {
-	ds, err := d.GetInstance(opts.Path)
+	ds, err := d.GetInstanceWithContext(ctx, opts.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +68,7 @@ func (d *DaemonSet) TailLogs(ctx context.Context, opts *LogOptions) ([]LogChan, 
 }
 
 func podLogs(ctx context.Context, sel map[string]string, opts *LogOptions) ([]LogChan, error) {
-	f, ok := ctx.Value(internal.KeyFactory).(*watch.Factory)
+	f, ok := ctx.Value(internal.KeyFactory).(Factory)
 	if !ok {
 		return nil, errors.New("expecting a context factory")
 	}
@@ -83,7 +82,12 @@ func podLogs(ctx context.Context, sel map[string]string, opts *LogOptions) ([]Lo
 	}
 
 	ns, _ := client.Namespaced(opts.Path)
-	oo, err := f.List(client.PodGVR, ns, true, lsel)
+	var oo []runtime.Object
+	if cf, ok := f.(ContextualFactory); ok {
+		oo, err = cf.ListWithContext(ctx, client.PodGVR, ns, true, lsel)
+	} else {
+		oo, err = f.List(client.PodGVR, ns, true, lsel)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +126,13 @@ func (d *DaemonSet) Pod(fqn string) (string, error) {
 
 // GetInstance returns a daemonset instance.
 func (d *DaemonSet) GetInstance(fqn string) (*appsv1.DaemonSet, error) {
-	o, err := d.getFactory().Get(d.gvr, fqn, true, labels.Everything())
+	return d.GetInstanceWithContext(context.Background(), fqn)
+}
+
+// GetInstanceWithContext fetches a daemonset, honoring
+// internal.KeyScopeContext on ctx for per-row routing in multi-context mode.
+func (d *DaemonSet) GetInstanceWithContext(ctx context.Context, fqn string) (*appsv1.DaemonSet, error) {
+	o, err := getRes(d.getFactory(), ctx, d.gvr, fqn)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +247,8 @@ func (d *DaemonSet) GetPodSpec(path string) (*v1.PodSpec, error) {
 // SetImages sets container images.
 func (d *DaemonSet) SetImages(ctx context.Context, path string, imageSpecs ImageSpecs) error {
 	ns, n := client.Namespaced(path)
-	auth, err := d.Client().CanI(ns, d.gvr, n, client.PatchAccess)
+	conn := d.clientFor(ctx)
+	auth, err := conn.CanI(ns, d.gvr, n, client.PatchAccess)
 	if err != nil {
 		return err
 	}
@@ -248,7 +259,7 @@ func (d *DaemonSet) SetImages(ctx context.Context, path string, imageSpecs Image
 	if err != nil {
 		return err
 	}
-	dial, err := d.Client().Dial()
+	dial, err := conn.Dial()
 	if err != nil {
 		return err
 	}

@@ -13,7 +13,6 @@ import (
 	"github.com/derailed/k9s/internal/render"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	mv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 )
@@ -46,10 +45,10 @@ func (c *Container) List(ctx context.Context, _ string) ([]runtime.Object, error
 		err error
 	)
 	if withMx, ok := ctx.Value(internal.KeyWithMetrics).(bool); ok && withMx {
-		cmx, _ = client.DialMetrics(c.Client()).FetchContainersMetrics(ctx, fqn)
+		cmx, _ = client.DialMetrics(c.clientFor(ctx)).FetchContainersMetrics(ctx, fqn)
 	}
 
-	po, err := c.fetchPod(fqn)
+	po, err := c.fetchPod(ctx, fqn)
 	if err != nil {
 		return nil, err
 	}
@@ -132,8 +131,8 @@ func getContainerStatus(kind, name string, status *v1.PodStatus) *v1.ContainerSt
 	return nil
 }
 
-func (c *Container) fetchPod(fqn string) (*v1.Pod, error) {
-	o, err := c.getFactory().Get(client.PodGVR, fqn, true, labels.Everything())
+func (c *Container) fetchPod(ctx context.Context, fqn string) (*v1.Pod, error) {
+	o, err := getRes(c.getFactory(), ctx, client.PodGVR, fqn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate pod %q: %w", fqn, err)
 	}

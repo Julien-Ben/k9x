@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/ui"
 	"github.com/derailed/k9s/internal/ui/dialog"
@@ -61,9 +62,13 @@ func (r *RestartExtender) restartCmd(*tcell.EventKey) *tcell.EventKey {
 		Message:      msg,
 		FieldManager: "kubectl-rollout",
 		Ack: func(opts *metav1.PatchOptions) bool {
-			ctx, cancel := context.WithTimeout(context.Background(), r.App().Conn().Config().CallTimeout())
+			rootCtx, cancel := context.WithTimeout(context.Background(), r.App().Conn().Config().CallTimeout())
 			defer cancel()
 			for _, path := range paths {
+				ctx := rootCtx
+				if scope := extractRowScope(r.GetTable().GetModel(), path); scope != "" {
+					ctx = context.WithValue(ctx, internal.KeyScopeContext, scope)
+				}
 				if err := r.restartRollout(ctx, path, opts); err != nil {
 					r.App().Flash().Err(err)
 				} else {

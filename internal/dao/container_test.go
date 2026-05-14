@@ -37,6 +37,20 @@ func TestContainerList(t *testing.T) {
 	assert.Len(t, oo, 1)
 }
 
+func TestContainer_FetchPod_RoutesViaScopeContext(t *testing.T) {
+	f := &contextualPodFactory{}
+	c := dao.Container{}
+	c.Init(f, client.CoGVR)
+
+	ctx := context.WithValue(context.Background(), internal.KeyPath, "fred/p1")
+	ctx = context.WithValue(ctx, internal.KeyScopeContext, "ctxA")
+	_, err := c.List(ctx, "")
+	require.NoError(t, err)
+	assert.Equal(t, 1, f.getWithContextCalls, "expected ContextualFactory.GetWithContext to be called once")
+	assert.Equal(t, 0, f.getCalls, "expected plain Factory.Get to be bypassed in multi-context mode")
+	assert.Equal(t, "ctxA", f.lastScope, "expected scope from KeyScopeContext to be threaded into GetWithContext")
+}
+
 // ----------------------------------------------------------------------------
 // Helpers...
 
@@ -101,6 +115,56 @@ func (podFactory) DeleteForwarder(string)       {}
 
 func makePodFactory() dao.Factory {
 	return podFactory{}
+}
+
+// contextualPodFactory implements dao.ContextualFactory so we can verify
+// fetchPod routes through GetWithContext when KeyScopeContext is set.
+type contextualPodFactory struct {
+	getCalls            int
+	getWithContextCalls int
+	lastScope           string
+}
+
+func (f *contextualPodFactory) Client() client.Connection { return makeConn() }
+
+func (f *contextualPodFactory) Get(*client.GVR, string, bool, labels.Selector) (runtime.Object, error) {
+	f.getCalls++
+	return podObject()
+}
+
+func (f *contextualPodFactory) List(*client.GVR, string, bool, labels.Selector) ([]runtime.Object, error) {
+	return nil, nil
+}
+func (f *contextualPodFactory) ForResource(string, *client.GVR) (informers.GenericInformer, error) {
+	return nil, nil
+}
+func (f *contextualPodFactory) CanForResource(string, *client.GVR, []string) (informers.GenericInformer, error) {
+	return nil, nil
+}
+func (f *contextualPodFactory) WaitForCacheSync()            {}
+func (f *contextualPodFactory) Forwarders() watch.Forwarders { return nil }
+func (f *contextualPodFactory) DeleteForwarder(string)       {}
+
+func (f *contextualPodFactory) ClientFor(context.Context) client.Connection { return makeConn() }
+
+func (f *contextualPodFactory) GetWithContext(ctx context.Context, _ *client.GVR, _ string, _ bool, _ labels.Selector) (runtime.Object, error) {
+	f.getWithContextCalls++
+	if scope, ok := ctx.Value(internal.KeyScopeContext).(string); ok {
+		f.lastScope = scope
+	}
+	return podObject()
+}
+
+func (f *contextualPodFactory) ListWithContext(_ context.Context, _ *client.GVR, _ string, _ bool, _ labels.Selector) ([]runtime.Object, error) {
+	return nil, nil
+}
+
+func podObject() (runtime.Object, error) {
+	var m map[string]any
+	if err := yaml.Unmarshal([]byte(poYaml()), &m); err != nil {
+		return nil, err
+	}
+	return &unstructured.Unstructured{Object: m}, nil
 }
 
 func poYaml() string {

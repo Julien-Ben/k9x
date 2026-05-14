@@ -62,7 +62,7 @@ func (d *Deployment) Restart(ctx context.Context, path string, opts *metav1.Patc
 
 // TailLogs tail logs for all pods represented by this Deployment.
 func (d *Deployment) TailLogs(ctx context.Context, opts *LogOptions) ([]LogChan, error) {
-	dp, err := d.GetInstance(opts.Path)
+	dp, err := d.GetInstanceWithContext(ctx, opts.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,13 @@ func (d *Deployment) Pod(fqn string) (string, error) {
 
 // GetInstance fetch a matching deployment.
 func (d *Deployment) GetInstance(fqn string) (*appsv1.Deployment, error) {
-	o, err := d.Factory.Get(d.gvr, fqn, true, labels.Everything())
+	return d.GetInstanceWithContext(context.Background(), fqn)
+}
+
+// GetInstanceWithContext fetches a deployment, honoring
+// internal.KeyScopeContext on ctx for per-row routing in multi-context mode.
+func (d *Deployment) GetInstanceWithContext(ctx context.Context, fqn string) (*appsv1.Deployment, error) {
+	o, err := getRes(d.getFactory(), ctx, d.gvr, fqn)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +206,8 @@ func (d *Deployment) GetPodSpec(path string) (*v1.PodSpec, error) {
 // SetImages sets container images.
 func (d *Deployment) SetImages(ctx context.Context, path string, imageSpecs ImageSpecs) error {
 	ns, n := client.Namespaced(path)
-	auth, err := d.Client().CanI(ns, d.gvr, n, client.PatchAccess)
+	conn := d.clientFor(ctx)
+	auth, err := conn.CanI(ns, d.gvr, n, client.PatchAccess)
 	if err != nil {
 		return err
 	}
@@ -211,7 +218,7 @@ func (d *Deployment) SetImages(ctx context.Context, path string, imageSpecs Imag
 	if err != nil {
 		return err
 	}
-	dial, err := d.Client().Dial()
+	dial, err := conn.Dial()
 	if err != nil {
 		return err
 	}
@@ -360,7 +367,11 @@ func containerHasConfigMap(envFrom []v1.EnvFromSource, env []v1.EnvVar, name str
 
 func scaleRes(ctx context.Context, f Factory, gvr *client.GVR, path string, replicas int32) error {
 	ns, n := client.Namespaced(path)
-	auth, err := f.Client().CanI(ns, client.NewGVR(gvr.String()+":scale"), n, []string{client.GetVerb, client.UpdateVerb})
+	conn := f.Client()
+	if cf, ok := f.(ContextualFactory); ok {
+		conn = cf.ClientFor(ctx)
+	}
+	auth, err := conn.CanI(ns, client.NewGVR(gvr.String()+":scale"), n, []string{client.GetVerb, client.UpdateVerb})
 	if err != nil {
 		return err
 	}
@@ -368,7 +379,7 @@ func scaleRes(ctx context.Context, f Factory, gvr *client.GVR, path string, repl
 		return fmt.Errorf("user is not authorized to scale: %s", gvr)
 	}
 
-	dial, err := f.Client().Dial()
+	dial, err := conn.Dial()
 	if err != nil {
 		return err
 	}
@@ -396,7 +407,7 @@ func scaleRes(ctx context.Context, f Factory, gvr *client.GVR, path string, repl
 }
 
 func restartRes[T runtime.Object](ctx context.Context, f Factory, gvr *client.GVR, path string, opts *metav1.PatchOptions) error {
-	o, err := f.Get(gvr, path, true, labels.Everything())
+	o, err := getRes(f, ctx, gvr, path)
 	if err != nil {
 		return err
 	}
@@ -407,7 +418,11 @@ func restartRes[T runtime.Object](ctx context.Context, f Factory, gvr *client.GV
 	}
 
 	ns, n := client.Namespaced(path)
-	auth, err := f.Client().CanI(ns, gvr, n, client.PatchAccess)
+	conn := f.Client()
+	if cf, ok := f.(ContextualFactory); ok {
+		conn = cf.ClientFor(ctx)
+	}
+	auth, err := conn.CanI(ns, gvr, n, client.PatchAccess)
 	if err != nil {
 		return err
 	}
@@ -415,7 +430,7 @@ func restartRes[T runtime.Object](ctx context.Context, f Factory, gvr *client.GV
 		return fmt.Errorf("user is not authorized to restart %q", gvr)
 	}
 
-	dial, err := f.Client().Dial()
+	dial, err := conn.Dial()
 	if err != nil {
 		return err
 	}

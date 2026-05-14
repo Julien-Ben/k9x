@@ -4,12 +4,14 @@
 package view
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/config"
 	"github.com/derailed/k9s/internal/dao"
@@ -55,11 +57,16 @@ func (s *Service) bindKeys(aa *ui.KeyActions) {
 	})
 }
 
-func (s *Service) showPods(a *App, _ ui.Tabular, _ *client.GVR, path string) {
+func (s *Service) showPods(a *App, m ui.Tabular, _ *client.GVR, path string) {
 	var res dao.Service
 	res.Init(a.factory, s.GVR())
 
-	svc, err := res.GetInstance(path)
+	scope := extractRowScope(m, path)
+	ctx := context.Background()
+	if scope != "" {
+		ctx = context.WithValue(ctx, internal.KeyScopeContext, scope)
+	}
+	svc, err := res.GetInstanceWithContext(ctx, path)
 	if err != nil {
 		a.Flash().Err(err)
 		return
@@ -73,7 +80,7 @@ func (s *Service) showPods(a *App, _ ui.Tabular, _ *client.GVR, path string) {
 		return
 	}
 
-	showPods(a, path, labels.SelectorFromSet(svc.Spec.Selector), "")
+	showPods(a, path, labels.SelectorFromSet(svc.Spec.Selector), "", extractRowScope(m, path))
 }
 
 func (*Service) checkSvc(svc *v1.Service) error {

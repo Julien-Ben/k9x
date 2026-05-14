@@ -45,6 +45,32 @@ type Factory interface {
 	Forwarders() watch.Forwarders
 }
 
+// ContextualFactory is a Factory whose List/Get fan-out and Client selection
+// can be scoped to a single child context. Implemented by watch.MultiFactory
+// in multi-context mode. Callers that need per-row context routing should
+// type-assert to this interface and fall back to the plain Factory methods
+// if the assertion fails (single-context mode).
+//
+// KeyScopeContext (in internal/keys.go) is read from the supplied context to
+// identify which child to route to. An empty / missing key means "fan out to
+// all children" (the default multi-mode behavior).
+type ContextualFactory interface {
+	Factory
+
+	// ListWithContext lists resources, honoring internal.KeyScopeContext on
+	// the supplied context to constrain fan-out.
+	ListWithContext(ctx context.Context, gvr *client.GVR, ns string, wait bool, sel labels.Selector) ([]runtime.Object, error)
+
+	// GetWithContext fetches a single resource, honoring KeyScopeContext.
+	GetWithContext(ctx context.Context, gvr *client.GVR, path string, wait bool, sel labels.Selector) (runtime.Object, error)
+
+	// ClientFor returns the client.Connection for the child identified by
+	// internal.KeyScopeContext on the supplied context, falling back to the
+	// primary's connection when the key is absent or empty. DAO mutations
+	// dispatch through this so writes hit the row's source cluster.
+	ClientFor(ctx context.Context) client.Connection
+}
+
 // LifecycleFactory is a Factory augmented with informer lifecycle and
 // port-forward management. Used by the view layer to drive informer start/stop
 // and forwarder registration. Kept separate from Factory to avoid widening the
@@ -133,6 +159,14 @@ type Loggable interface {
 	TailLogs(ctx context.Context, opts *LogOptions) ([]LogChan, error)
 }
 
+// ContextualDescriber augments Describer with context-aware ToYAML / Describe
+// so the underlying Get can route through MultiFactory.GetWithContext based on
+// internal.KeyScopeContext. Optional: callers must type-assert.
+type ContextualDescriber interface {
+	ToYAMLWithContext(ctx context.Context, path string, showManaged bool) (string, error)
+	DescribeWithContext(ctx context.Context, path string) (string, error)
+}
+
 // Describer describes a resource.
 type Describer interface {
 	// Describe describes a resource.
@@ -186,8 +220,9 @@ type Runnable interface {
 
 // Logger represents a resource that exposes logs.
 type Logger interface {
-	// Logs tails a resource logs.
-	Logs(path string, opts *v1.PodLogOptions) (*restclient.Request, error)
+	// Logs tails a resource logs. ctx may carry internal.KeyScopeContext to
+	// route the dial to the row's source cluster in multi-context mode.
+	Logs(ctx context.Context, path string, opts *v1.PodLogOptions) (*restclient.Request, error)
 }
 
 // ContainsPodSpec represents a resource with a pod template.
