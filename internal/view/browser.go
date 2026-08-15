@@ -24,6 +24,7 @@ import (
 	"github.com/derailed/k9s/internal/ui"
 	"github.com/derailed/k9s/internal/ui/dialog"
 	"github.com/derailed/k9s/internal/view/cmd"
+	"github.com/derailed/k9s/internal/watch"
 	"github.com/derailed/tcell/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -236,7 +237,7 @@ func (b *Browser) BufferActive(state bool, _ model.BufferKind) {
 		)
 	}
 	mdata := b.GetModel().Peek()
-	cdata := b.Update(mdata, b.App().Conn().HasMetrics())
+	cdata := b.Update(mdata, b.App().HasMetrics())
 	b.app.QueueUpdateDraw(func() {
 		if b.getUpdating() {
 			return
@@ -334,7 +335,7 @@ func (b *Browser) TableNoData(mdata *model1.TableData) {
 		return
 	}
 
-	cdata := b.Update(mdata, b.app.Conn().HasMetrics())
+	cdata := b.Update(mdata, b.app.HasMetrics())
 	b.app.QueueUpdateDraw(func() {
 		if b.getUpdating() {
 			return
@@ -360,7 +361,9 @@ func (b *Browser) TableDataChanged(mdata *model1.TableData) {
 		return
 	}
 
-	cdata := b.Update(mdata, b.app.Conn().HasMetrics())
+	cdata := b.Update(mdata, b.app.HasMetrics())
+	b.flashMultiContextDivergence()
+	b.flashMultiContextHealth()
 	b.app.QueueUpdateDraw(func() {
 		if b.getUpdating() {
 			return
@@ -377,6 +380,42 @@ func (b *Browser) TableDataChanged(mdata *model1.TableData) {
 		b.refreshActions()
 		b.UpdateUI(cdata, mdata)
 	})
+}
+
+// flashMultiContextDivergence surfaces a one-shot banner naming the contexts
+// in which the current GVR is unavailable (discovery divergence). The
+// MultiFactory tracks acknowledgement state per (gvr, ctx), so this fires
+// once per pair within a multi-context session.
+func (b *Browser) flashMultiContextDivergence() {
+	mf, ok := b.app.factory.(*watch.MultiFactory)
+	if !ok {
+		return
+	}
+	missing := mf.NewDivergencesForFlash(b.GVR())
+	if len(missing) == 0 {
+		return
+	}
+	b.app.Flash().Warnf("%s unavailable in %d contexts: %s — rows omitted from those clusters",
+		b.GVR(), len(missing), strings.Join(missing, ", "))
+}
+
+// flashMultiContextHealth drains and surfaces any Healthy↔Quarantined edges
+// recorded by the per-tick state machine. Drained on every refresh so a
+// transition only fires once; subsequent ticks see an empty list until the
+// next change.
+func (b *Browser) flashMultiContextHealth() {
+	mf, ok := b.app.factory.(*watch.MultiFactory)
+	if !ok {
+		return
+	}
+	for _, t := range mf.NewHealthTransitions() {
+		switch t.To {
+		case watch.HealthQuarantined:
+			b.app.Flash().Warnf("Cluster %q unreachable — rows from that context will be stale", t.Context)
+		case watch.HealthHealthy:
+			b.app.Flash().Infof("Cluster %q reconnected", t.Context)
+		}
+	}
 }
 
 // TableLoadFailed notifies view something went south.
@@ -662,7 +701,7 @@ func (b *Browser) defaultContext() context.Context {
 		}
 	}
 	ctx = context.WithValue(ctx, internal.KeyNamespace, client.CleanseNamespace(b.App().Config.ActiveNamespace()))
-	ctx = context.WithValue(ctx, internal.KeyWithMetrics, b.app.factory.Client().HasMetrics())
+	ctx = context.WithValue(ctx, internal.KeyWithMetrics, b.app.HasMetrics())
 	ctx = context.WithValue(ctx, internal.KeyMultiContext, b.App().Config.K9s.MultiContextMode)
 
 	return ctx
@@ -725,7 +764,11 @@ func (b *Browser) namespaceActions(aa *ui.KeyActions) {
 	}
 	aa.Add(ui.KeyN, ui.NewKeyAction("Copy Namespace", b.cpNsCmd, false))
 	if b.meta.Namespaced {
-		aa.Add(ui.KeyW, ui.NewKeyAction("Warp To Namespace", b.nsWarpCmd, true))
+		// In multi-context mode the hint bar surfaces Shift-X (Sort Context)
+		// instead of Warp — the action stays bound, but the visible slot is
+		// reused for the more multi-cluster-relevant shortcut.
+		visible := !b.App().Config.K9s.MultiContextMode
+		aa.Add(ui.KeyW, ui.NewKeyAction("Warp To Namespace", b.nsWarpCmd, visible))
 	}
 
 	b.namespaces = make(map[int]string, data.MaxFavoritesNS)

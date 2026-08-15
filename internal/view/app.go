@@ -93,6 +93,43 @@ func (a *App) ConOK() bool {
 	return atomic.LoadInt32(&a.conRetry) == 0
 }
 
+// flashMultiContextStartup emits a one-shot status-bar confirmation that the
+// app is watching N kubeconfig contexts. Names are truncated to 3 + "… (+N more)"
+// to fit the flash bar; the cluster-info panel is the canonical place to see
+// the full list.
+//
+// The flash is deferred past the splash screen and the default view's own
+// "Viewing v1/pods" flash so it lands on top rather than being immediately
+// overwritten. The flash bar is single-slot; landing last wins.
+func (a *App) flashMultiContextStartup(names []string) {
+	if len(names) == 0 {
+		return
+	}
+	const maxShown = 3
+	shown := names
+	suffix := ""
+	if len(names) > maxShown {
+		shown = names[:maxShown]
+		suffix = fmt.Sprintf(", … (+%d more)", len(names)-maxShown)
+	}
+	msg := fmt.Sprintf("Watching %d contexts: %s%s", len(names), strings.Join(shown, ", "), suffix)
+	time.AfterFunc(splashDelay+2500*time.Millisecond, func() {
+		a.Flash().Info(msg)
+	})
+}
+
+// HasMetrics reports whether metrics columns (CPU/MEM) should be rendered.
+// In single-context mode this is the primary connection's HasMetrics. In
+// multi-context mode it's a conservative AND across every child cluster: if
+// any cluster lacks metrics, the columns are hidden so rows from metric-less
+// clusters don't render as N/A and visually skew comparisons.
+func (a *App) HasMetrics() bool {
+	if mf, ok := a.factory.(*watch.MultiFactory); ok {
+		return mf.HasMetrics()
+	}
+	return a.Conn().HasMetrics()
+}
+
 // Init initializes the application.
 func (a *App) Init(version string, _ int) error {
 	a.version = model.NormalizeVersion(version)
@@ -118,6 +155,7 @@ func (a *App) Init(version string, _ int) error {
 				return fmt.Errorf("multi-context init failed: %w", err)
 			}
 			a.factory = mf
+			a.flashMultiContextStartup(mf.Contexts())
 		} else {
 			a.factory = watch.NewFactory(a.Conn())
 		}

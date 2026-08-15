@@ -23,14 +23,8 @@ const SourceContextAnnotation = "k9s.io/source-context"
 // each object before rendering.
 //
 // The CONTEXT column is prepended at the START of the header (and of
-// row.Fields). Known side effects of this choice:
-//   - In multi mode, namespace-view and context-view colorers that hardcode
-//     `Fields[0]` to mean "the name column" (internal/render/ns.go:45,
-//     internal/render/context.go:28) compare against the ctxName instead of
-//     the name. Cosmetic only — those colorers add an active-row highlight;
-//     in multi mode the highlight just doesn't trigger. Data integrity is
-//     unaffected because column order in the UI is driven by Header, not by
-//     hardcoded positions.
+// row.Fields). Colorers that look up "NAME" must use Header.IndexOf rather
+// than a hardcoded Fields[0] position to remain correct in multi mode.
 type MultiContextRenderer struct {
 	inner model1.Renderer
 }

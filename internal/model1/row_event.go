@@ -114,9 +114,13 @@ func NewRowEventsWithEvts(ee ...RowEvent) *RowEvents {
 	return re
 }
 
+// reindex rebuilds the StoreKey → events-slice-index map after a structural
+// mutation (sort, delete). Keyed by StoreKey so same-FQN cross-cluster rows
+// each occupy their own slot in multi-context mode.
 func (r *RowEvents) reindex() {
+	clear(r.index)
 	for i, e := range r.events {
-		r.index[e.Row.ID] = i
+		r.index[e.Row.StoreKey()] = i
 	}
 }
 
@@ -130,12 +134,12 @@ func (r *RowEvents) At(i int) (RowEvent, bool) {
 
 func (r *RowEvents) Set(i int, re RowEvent) {
 	r.events[i] = re
-	r.index[re.Row.ID] = i
+	r.index[re.Row.StoreKey()] = i
 }
 
 func (r *RowEvents) Add(re RowEvent) {
 	r.events = append(r.events, re)
-	r.index[re.Row.ID] = len(r.events) - 1
+	r.index[re.Row.StoreKey()] = len(r.events) - 1
 }
 
 // ExtractHeaderLabels extract header labels.
@@ -194,21 +198,24 @@ func (r *RowEvents) Clone() *RowEvents {
 
 // Upsert add or update a row if it exists.
 func (r *RowEvents) Upsert(re RowEvent) {
-	if idx, ok := r.FindIndex(re.Row.ID); ok {
+	if idx, ok := r.FindIndex(re.Row.StoreKey()); ok {
 		r.events[idx] = re
 	} else {
 		r.Add(re)
 	}
 }
 
-// Delete removes an element by id.
-func (r *RowEvents) Delete(fqn string) error {
-	victim, ok := r.FindIndex(fqn)
+// Delete removes an element by StoreKey (Source@ID in multi-context mode,
+// plain ID otherwise). Callers that only have a Row.ID can pass it directly
+// for single-context behavior — multi-context callers must compute StoreKey
+// to disambiguate cross-cluster collisions.
+func (r *RowEvents) Delete(key string) error {
+	victim, ok := r.FindIndex(key)
 	if !ok {
-		return fmt.Errorf("unable to delete row with fqn: %q", fqn)
+		return fmt.Errorf("unable to delete row with key: %q", key)
 	}
 	r.events = append(r.events[0:victim], r.events[victim+1:]...)
-	delete(r.index, fqn)
+	delete(r.index, key)
 	r.reindex()
 
 	return nil
@@ -238,8 +245,11 @@ func (r *RowEvents) Range(f ReRangeFn) {
 	}
 }
 
-func (r *RowEvents) Get(id string) (RowEvent, bool) {
-	i, ok := r.index[id]
+// Get returns the event for the given StoreKey. In single-context mode the
+// key equals Row.ID; in multi-context mode callers must pass StoreKey
+// (Source@ID) to avoid ambiguity. Use FindByID for FQN-only lookups.
+func (r *RowEvents) Get(key string) (RowEvent, bool) {
+	i, ok := r.index[key]
 	if !ok {
 		return RowEvent{}, false
 	}
@@ -247,11 +257,26 @@ func (r *RowEvents) Get(id string) (RowEvent, bool) {
 	return r.At(i)
 }
 
-// FindIndex locates a row index by id. Returns false is not found.
-func (r *RowEvents) FindIndex(id string) (int, bool) {
-	i, ok := r.index[id]
+// FindIndex locates a row index by StoreKey. Returns false if not found.
+func (r *RowEvents) FindIndex(key string) (int, bool) {
+	i, ok := r.index[key]
 
 	return i, ok
+}
+
+// FindByID returns the first event whose Row.ID matches id, ignoring Source.
+// Used by external callers that only have an FQN (e.g. synthetic-row lookups
+// like the "all" namespace, or pre-multi-context selection paths). In
+// multi-context mode multiple rows may share an ID; this returns the first
+// in storage order, which is good enough for the few legacy callers — new
+// code should prefer FindIndex / Get with an explicit StoreKey.
+func (r *RowEvents) FindByID(id string) (RowEvent, bool) {
+	for _, e := range r.events {
+		if e.Row.ID == id {
+			return e, true
+		}
+	}
+	return RowEvent{}, false
 }
 
 // Sort rows based on column index and order.

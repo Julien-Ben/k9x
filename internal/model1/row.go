@@ -12,6 +12,21 @@ type Row struct {
 	Source string
 }
 
+// StoreKey is the dedup key TableData uses for the rowEvents index. In
+// single-context mode it's just Row.ID (so existing single-cluster behavior
+// is untouched). In multi-context mode it's "<Source>@<ID>", which prevents
+// same-FQN resources from different kubeconfig contexts (e.g.
+// kube-system/coredns in cluster-a vs cluster-b) from colliding into a
+// single index slot and getting progressively deduped over refresh ticks.
+// Uses '@' rather than '/' because '/' is part of the FQN syntax — '@'
+// reads as "from" and won't collide with anything in the FQN namespace.
+func (r Row) StoreKey() string {
+	if r.Source == "" {
+		return r.ID
+	}
+	return r.Source + "@" + r.ID
+}
+
 // NewRow returns a new row with initialized fields.
 func NewRow(size int) Row {
 	return Row{Fields: make([]string, size)}

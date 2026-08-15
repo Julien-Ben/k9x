@@ -25,8 +25,10 @@ type Context struct {
 func (Context) ColorerFunc() model1.ColorerFunc {
 	return func(ns string, h model1.Header, r *model1.RowEvent) tcell.Color {
 		c := model1.DefaultColorer(ns, h, r)
-		if strings.Contains(strings.TrimSpace(r.Row.Fields[0]), "*") {
-			return model1.HighlightColor
+		if idx, ok := h.IndexOf("NAME", true); ok {
+			if strings.Contains(strings.TrimSpace(r.Row.Fields[idx]), "*") {
+				return model1.HighlightColor
+			}
 		}
 
 		return c

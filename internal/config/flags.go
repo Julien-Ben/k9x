@@ -23,7 +23,7 @@ type Flags struct {
 	Logoless      *bool
 	Command       *string
 	AllNamespaces *bool
-	AllContexts   *bool
+	MultiContext  *bool
 	ReadOnly      *bool
 	Write         *bool
 	Crumbsless    *bool
@@ -42,7 +42,7 @@ func NewFlags() *Flags {
 		Logoless:      boolPtr(false),
 		Command:       strPtr(DefaultCommand),
 		AllNamespaces: boolPtr(false),
-		AllContexts:   boolPtr(false),
+		MultiContext:  boolPtr(false),
 		ReadOnly:      boolPtr(false),
 		Write:         boolPtr(false),
 		Crumbsless:    boolPtr(false),

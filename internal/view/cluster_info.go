@@ -6,6 +6,7 @@ package view
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/config"
@@ -13,6 +14,7 @@ import (
 	"github.com/derailed/k9s/internal/render"
 	"github.com/derailed/k9s/internal/slogs"
 	"github.com/derailed/k9s/internal/ui"
+	"github.com/derailed/k9s/internal/watch"
 	"github.com/derailed/tcell/v2"
 	"github.com/derailed/tview"
 )
@@ -52,7 +54,7 @@ func (c *ClusterInfo) StylesChanged(s *config.Styles) {
 }
 
 func (c *ClusterInfo) hasMetrics() bool {
-	mx := c.app.Conn().HasMetrics()
+	mx := c.app.HasMetrics()
 	if mx {
 		auth, err := c.app.Conn().CanI("", client.NmxGVR, "", client.ListAccess)
 		if err != nil {
@@ -113,6 +115,11 @@ func (*ClusterInfo) warnCell(s string, w bool) string {
 func (c *ClusterInfo) ClusterInfoChanged(prev, curr *model.ClusterMeta) {
 	c.app.QueueUpdateDraw(func() {
 		c.Clear()
+		if mf, ok := c.app.factory.(*watch.MultiFactory); ok {
+			c.renderMultiContext(mf, curr)
+			c.updateStyle()
+			return
+		}
 		c.layout()
 
 		context := curr.Context
@@ -138,6 +145,51 @@ func (c *ClusterInfo) ClusterInfoChanged(prev, curr *model.ClusterMeta) {
 		}
 		c.updateStyle()
 	})
+}
+
+// renderMultiContext repaints the cluster-info widget with a multi-context
+// summary instead of the single-cluster Context/Cluster/User/... layout.
+// Rows: mode banner, health summary, optional quarantine list, K9s version,
+// K8s version (primary's, with note). CPU/MEM omitted — App.HasMetrics
+// hides those columns when any child cluster lacks metrics, so showing them
+// here would be misleading.
+func (c *ClusterInfo) renderMultiContext(mf *watch.MultiFactory, curr *model.ClusterMeta) {
+	total, healthy, quarantined := mf.HealthSummary()
+	healthLine := fmt.Sprintf("%d/%d healthy", healthy, total)
+	if len(quarantined) > 0 {
+		healthLine = c.warnCell(healthLine, true)
+	}
+	rows := []struct{ label, value string }{
+		{"Mode", "multi-context"},
+		{"Watching", healthLine},
+	}
+	if len(quarantined) > 0 {
+		rows = append(rows, struct{ label, value string }{
+			"Quarantined", c.warnCell(joinTruncated(quarantined, 3), true),
+		})
+	}
+	if curr.K9sLatest != "" {
+		rows = append(rows, struct{ label, value string }{
+			"K9s Rev", fmt.Sprintf("%s ⚡️[cadetblue::b]%s", curr.K9sVer, curr.K9sLatest),
+		})
+	} else {
+		rows = append(rows, struct{ label, value string }{"K9s Rev", curr.K9sVer})
+	}
+	rows = append(rows, struct{ label, value string }{"K8s Rev", curr.K8sVer + " (primary)"})
+
+	for i, r := range rows {
+		c.SetCell(i, 0, c.sectionCell(r.label))
+		c.SetCell(i, 1, c.infoCell(r.value))
+	}
+}
+
+// joinTruncated joins names with ", ", capping at max and appending a
+// "(+N more)" suffix so the cluster-info widget never overflows.
+func joinTruncated(names []string, max int) string {
+	if len(names) <= max {
+		return strings.Join(names, ", ")
+	}
+	return strings.Join(names[:max], ", ") + fmt.Sprintf(" (+%d more)", len(names)-max)
 }
 
 const defconFmt = "%s %s level!"

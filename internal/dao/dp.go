@@ -106,9 +106,9 @@ func (d *Deployment) GetInstanceWithContext(ctx context.Context, fqn string) (*a
 }
 
 // ScanSA scans for serviceaccount refs.
-func (d *Deployment) ScanSA(_ context.Context, fqn string, wait bool) (Refs, error) {
+func (d *Deployment) ScanSA(ctx context.Context, fqn string, wait bool) (Refs, error) {
 	ns, n := client.Namespaced(fqn)
-	oo, err := d.getFactory().List(d.gvr, ns, wait, labels.Everything())
+	oo, err := listRes(d.getFactory(), ctx, d.gvr, ns, wait, labels.Everything())
 	if err != nil {
 		return nil, err
 	}
@@ -132,9 +132,9 @@ func (d *Deployment) ScanSA(_ context.Context, fqn string, wait bool) (Refs, err
 }
 
 // Scan scans for resource references.
-func (d *Deployment) Scan(_ context.Context, gvr *client.GVR, fqn string, wait bool) (Refs, error) {
+func (d *Deployment) Scan(ctx context.Context, gvr *client.GVR, fqn string, wait bool) (Refs, error) {
 	ns, n := client.Namespaced(fqn)
-	oo, err := d.getFactory().List(d.gvr, ns, wait, labels.Everything())
+	oo, err := listRes(d.getFactory(), ctx, d.gvr, ns, wait, labels.Everything())
 	if err != nil {
 		return nil, err
 	}

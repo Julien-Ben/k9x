@@ -143,7 +143,7 @@ func (c *Config) Refine(flags *genericclioptions.ConfigFlags, k9sFlags *Flags, c
 		return err
 	}
 
-	if k9sFlags != nil && IsBoolSet(k9sFlags.AllContexts) {
+	if k9sFlags != nil && IsBoolSet(k9sFlags.MultiContext) {
 		c.K9s.MultiContextMode = true
 		// Multi-context mutations now route per-row via internal.KeyScopeContext
 		// (P0.5 ContextualFactory / ClientFor). Users can opt back into

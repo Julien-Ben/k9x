@@ -120,9 +120,9 @@ func (s *StatefulSet) getStatefulSet(fqn string) (*appsv1.StatefulSet, error) {
 }
 
 // ScanSA scans for serviceaccount refs.
-func (s *StatefulSet) ScanSA(_ context.Context, fqn string, wait bool) (Refs, error) {
+func (s *StatefulSet) ScanSA(ctx context.Context, fqn string, wait bool) (Refs, error) {
 	ns, n := client.Namespaced(fqn)
-	oo, err := s.getFactory().List(s.gvr, ns, wait, labels.Everything())
+	oo, err := listRes(s.getFactory(), ctx, s.gvr, ns, wait, labels.Everything())
 	if err != nil {
 		return nil, err
 	}
@@ -146,9 +146,9 @@ func (s *StatefulSet) ScanSA(_ context.Context, fqn string, wait bool) (Refs, er
 }
 
 // Scan scans for cluster resource refs.
-func (s *StatefulSet) Scan(_ context.Context, gvr *client.GVR, fqn string, wait bool) (Refs, error) {
+func (s *StatefulSet) Scan(ctx context.Context, gvr *client.GVR, fqn string, wait bool) (Refs, error) {
 	ns, n := client.Namespaced(fqn)
-	oo, err := s.getFactory().List(s.gvr, ns, wait, labels.Everything())
+	oo, err := listRes(s.getFactory(), ctx, s.gvr, ns, wait, labels.Everything())
 	if err != nil {
 		return nil, err
 	}

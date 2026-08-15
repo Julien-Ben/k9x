@@ -44,8 +44,9 @@ func scanRefs(evt *tcell.EventKey, a *App, t *Table, gvr *client.GVR) *tcell.Eve
 		return evt
 	}
 
+	scope := t.selectedContext()
 	ctx := context.Background()
-	refs, err := dao.ScanForRefs(refContext(gvr, path, true)(ctx), a.factory)
+	refs, err := dao.ScanForRefs(refContext(gvr, path, scope, true)(ctx), a.factory)
 	if err != nil {
 		a.Flash().Err(err)
 		return nil
@@ -56,7 +57,7 @@ func scanRefs(evt *tcell.EventKey, a *App, t *Table, gvr *client.GVR) *tcell.Eve
 	}
 	a.Flash().Infof("Viewing references for %s::%s", gvr, path)
 	view := NewReference(client.RefGVR)
-	view.SetContextFn(refContext(gvr, path, false))
+	view.SetContextFn(refContext(gvr, path, scope, false))
 	if err := a.inject(view, false); err != nil {
 		a.Flash().Err(err)
 	}
@@ -64,10 +65,19 @@ func scanRefs(evt *tcell.EventKey, a *App, t *Table, gvr *client.GVR) *tcell.Eve
 	return nil
 }
 
-func refContext(gvr *client.GVR, path string, wait bool) ContextFunc {
+// refContext threads the UsedBy invocation's resource path, GVR and source
+// kubeconfig context (empty in single-context mode) into the context chain
+// the dao.RefScanner implementations consume. The scope value drives
+// ContextualFactory.ListWithContext so reference results stay confined to
+// the selected row's cluster — otherwise a CM in kind-a would surface
+// pseudo-references from kind-b's identically-named workloads.
+func refContext(gvr *client.GVR, path, scope string, wait bool) ContextFunc {
 	return func(ctx context.Context) context.Context {
 		ctx = context.WithValue(ctx, internal.KeyPath, path)
 		ctx = context.WithValue(ctx, internal.KeyGVR, gvr)
+		if scope != "" {
+			ctx = context.WithValue(ctx, internal.KeyScopeContext, scope)
+		}
 		return context.WithValue(ctx, internal.KeyWait, wait)
 	}
 }

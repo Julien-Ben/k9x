@@ -217,8 +217,20 @@ func (p *Pod) TailLogs(ctx context.Context, opts *LogOptions) ([]LogChan, error)
 	if !ok {
 		return nil, errors.New("no factory in context")
 	}
+	scope, _ := ctx.Value(internal.KeyScopeContext).(string)
+	slog.Info("[multi-context dbg] Pod.TailLogs entry",
+		"path", opts.Path,
+		"opts.ScopeContext", opts.ScopeContext,
+		"ctx.KeyScopeContext", scope,
+		"factory.type", fmt.Sprintf("%T", fac),
+	)
 	o, err := getRes(fac, ctx, p.gvr, opts.Path)
 	if err != nil {
+		slog.Error("[multi-context dbg] Pod.TailLogs getRes failed",
+			"path", opts.Path,
+			"scope", scope,
+			"err", err,
+		)
 		return nil, err
 	}
 	var po v1.Pod
@@ -258,9 +270,9 @@ func (p *Pod) TailLogs(ctx context.Context, opts *LogOptions) ([]LogChan, error)
 }
 
 // ScanSA scans for ServiceAccount refs.
-func (p *Pod) ScanSA(_ context.Context, fqn string, wait bool) (Refs, error) {
+func (p *Pod) ScanSA(ctx context.Context, fqn string, wait bool) (Refs, error) {
 	ns, n := client.Namespaced(fqn)
-	oo, err := p.getFactory().List(p.gvr, ns, wait, labels.Everything())
+	oo, err := listRes(p.getFactory(), ctx, p.gvr, ns, wait, labels.Everything())
 	if err != nil {
 		return nil, err
 	}
@@ -288,9 +300,9 @@ func (p *Pod) ScanSA(_ context.Context, fqn string, wait bool) (Refs, error) {
 }
 
 // Scan scans for cluster resource refs.
-func (p *Pod) Scan(_ context.Context, gvr *client.GVR, fqn string, wait bool) (Refs, error) {
+func (p *Pod) Scan(ctx context.Context, gvr *client.GVR, fqn string, wait bool) (Refs, error) {
 	ns, n := client.Namespaced(fqn)
-	oo, err := p.getFactory().List(p.gvr, ns, wait, labels.Everything())
+	oo, err := listRes(p.getFactory(), ctx, p.gvr, ns, wait, labels.Everything())
 	if err != nil {
 		return nil, err
 	}

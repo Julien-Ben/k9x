@@ -92,8 +92,25 @@ func (t *TableData) SetRow(idx int, re RowEvent) {
 	t.rowEvents.Set(idx, re)
 }
 
+// FindRow returns the first event whose Row.ID equals id. Backward-compat
+// path for callers that only have an FQN (synthetic-row lookups, legacy
+// selection helpers). In multi-context mode this is ambiguous when multiple
+// rows share an FQN; new code that has a row in hand should call
+// FindRowByStoreKey instead. We first try the direct StoreKey lookup (fast
+// path for single-context and for callers that already passed StoreKey),
+// then fall back to a linear ID scan.
 func (t *TableData) FindRow(id string) (RowEvent, bool) {
-	return t.rowEvents.Get(id)
+	if re, ok := t.rowEvents.Get(id); ok {
+		return re, true
+	}
+	return t.rowEvents.FindByID(id)
+}
+
+// FindRowByStoreKey returns the event whose StoreKey matches key. Unambiguous
+// in multi-context mode — pass `row.StoreKey()` (or `source + "@" + id`) when
+// you have a specific row in mind rather than just its FQN.
+func (t *TableData) FindRowByStoreKey(key string) (RowEvent, bool) {
+	return t.rowEvents.Get(key)
 }
 
 func (t *TableData) RowAt(idx int) (RowEvent, bool) {
@@ -146,6 +163,25 @@ func (t *TableData) Filter(f FilterOpts) *TableData {
 	if f.Toast {
 		td.rowEvents = t.filterToast()
 	}
+	// Context selector takes precedence over label selector — `ctx=NAME`
+	// would otherwise be misclassified as a label query by ToLabels.
+	if scope, inverse, ok := internal.IsContextSelector(f.Filter); ok {
+		filtered := t.contextFilter(scope, inverse)
+		slog.Info("[multi-context dbg] context filter applied",
+			"filter", f.Filter,
+			"scope", scope,
+			"inverse", inverse,
+			"events_in", t.rowEvents.Len(),
+			"events_out", filtered.Len(),
+		)
+		td.rowEvents = filtered
+		return td
+	}
+	if f.Filter != "" {
+		slog.Info("[multi-context dbg] filter did NOT match ctx selector",
+			"filter", f.Filter,
+		)
+	}
 	if f.Filter == "" || internal.IsLabelSelector(f.Filter) {
 		return td
 	}
@@ -195,6 +231,23 @@ func (t *TableData) rxFilter(q string, inverse bool) (*RowEvents, error) {
 	})
 
 	return rr, nil
+}
+
+// contextFilter restricts rows to (or excludes them from when inverse=true)
+// the given kubeconfig context. Operates on Row.Source, which MultiFactory
+// stamps on every row from the SourceContextAnnotation. In single-context
+// mode every row has an empty Source and the filter returns nothing — that's
+// fine since the selector is documented as multi-context-only.
+func (t *TableData) contextFilter(scope string, inverse bool) *RowEvents {
+	rr := NewRowEvents(t.RowCount() / 2)
+	t.rowEvents.Range(func(_ int, re RowEvent) bool {
+		match := re.Row.Source == scope
+		if (inverse && !match) || (!inverse && match) {
+			rr.Add(re)
+		}
+		return true
+	})
+	return rr
 }
 
 func (t *TableData) fuzzyFilter(q string) *RowEvents {
@@ -421,19 +474,24 @@ func (t *TableData) SetHeader(ns string, h Header) {
 	t.namespace, t.header = ns, h
 }
 
-// Update computes row deltas and update the table data.
+// Update computes row deltas and update the table data. Uses Row.StoreKey
+// (Source@ID in multi-context mode, ID otherwise) as the dedup key so that
+// same-FQN resources from different kubeconfig contexts each occupy their
+// own slot — the original ID-only keying collapsed them and produced the
+// visible "duplicates shrink over a few ticks" race.
 func (t *TableData) Update(rows Rows) {
 	empty := t.Empty()
 	kk := sets.New[string]()
 	var blankDelta DeltaRow
 	t.mx.Lock()
 	for _, row := range rows {
-		kk.Insert(row.ID)
+		key := row.StoreKey()
+		kk.Insert(key)
 		if empty {
 			t.rowEvents.Add(NewRowEvent(EventAdd, row))
 			continue
 		}
-		if index, ok := t.rowEvents.FindIndex(row.ID); ok {
+		if index, ok := t.rowEvents.FindIndex(key); ok {
 			ev, ok := t.rowEvents.At(index)
 			if !ok {
 				continue
@@ -456,26 +514,27 @@ func (t *TableData) Update(rows Rows) {
 	}
 }
 
-// Delete removes items in cache that are no longer valid.
+// Delete removes items in cache whose StoreKey is not in newKeys.
 func (t *TableData) Delete(newKeys sets.Set[string]) {
 	t.mx.Lock()
 	defer t.mx.Unlock()
 
 	victims := sets.New[string]()
 	t.rowEvents.Range(func(_ int, e RowEvent) bool {
-		if newKeys.Has(e.Row.ID) {
-			delete(newKeys, e.Row.ID)
+		key := e.Row.StoreKey()
+		if newKeys.Has(key) {
+			delete(newKeys, key)
 		} else {
-			victims.Insert(e.Row.ID)
+			victims.Insert(key)
 		}
 		return true
 	})
 
-	for _, id := range victims.UnsortedList() {
-		if err := t.rowEvents.Delete(id); err != nil {
+	for _, key := range victims.UnsortedList() {
+		if err := t.rowEvents.Delete(key); err != nil {
 			slog.Error("Table delete failed",
 				slogs.Error, err,
-				slogs.Message, id,
+				slogs.Message, key,
 			)
 		}
 	}

@@ -72,6 +72,18 @@ func getRes(f Factory, ctx context.Context, gvr *client.GVR, path string) (runti
 	return f.Get(gvr, path, true, labels.Everything())
 }
 
+// listRes is the List equivalent of getRes: routes through
+// ContextualFactory.ListWithContext when the factory supports it so the fan-out
+// scopes to the ctx's KeyScopeContext (or, when KeyScopeContext is unset,
+// behaves like the plain List). Used by the RefScanner Scan implementations
+// so UsedBy results don't bleed across clusters.
+func listRes(f Factory, ctx context.Context, gvr *client.GVR, ns string, wait bool, sel labels.Selector) ([]runtime.Object, error) {
+	if cf, ok := f.(ContextualFactory); ok {
+		return cf.ListWithContext(ctx, gvr, ns, wait, sel)
+	}
+	return f.List(gvr, ns, wait, sel)
+}
+
 // GVR returns a gvr.
 func (n *NonResource) GVR() string {
 	n.mx.RLock()

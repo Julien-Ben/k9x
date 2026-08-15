@@ -448,6 +448,14 @@ func (t *Table) doUpdate(data *model1.TableData) *model1.TableData {
 	} else {
 		t.actions.Delete(KeyShiftP)
 	}
+	if t.GetModel().MultiContext() {
+		t.actions.Add(
+			KeyShiftX,
+			NewKeyAction("Sort Context", t.SortColCmd("CONTEXT", true), true),
+		)
+	} else {
+		t.actions.Delete(KeyShiftX)
+	}
 
 	oldSortCol := t.getSortCol()
 	t.setSortCol(data.ComputeSortCol(t.GetViewSetting(), t.getSortCol(), t.getMSort()))
@@ -491,9 +499,9 @@ func (t *Table) UpdateUI(cdata, data *model1.TableData) {
 	pads := make(MaxyPad, cdata.HeaderCount())
 	ComputeMaxColumns(pads, t.getSortCol().Name, cdata)
 	cdata.RowsRange(func(row int, re model1.RowEvent) bool {
-		ore, ok := data.FindRow(re.Row.ID)
+		ore, ok := data.FindRowByStoreKey(re.Row.StoreKey())
 		if !ok {
-			slog.Error("Unable to find original row event", slogs.RowID, re.Row.ID)
+			slog.Error("Unable to find original row event", slogs.RowID, re.Row.StoreKey())
 			return true
 		}
 		t.buildRow(row+1, re, ore, cdata.Header(), pads)

@@ -99,9 +99,9 @@ func (c *CronJob) Run(path string) error {
 }
 
 // ScanSA scans for serviceaccount refs.
-func (c *CronJob) ScanSA(_ context.Context, fqn string, wait bool) (Refs, error) {
+func (c *CronJob) ScanSA(ctx context.Context, fqn string, wait bool) (Refs, error) {
 	ns, n := client.Namespaced(fqn)
-	oo, err := c.getFactory().List(c.gvr, ns, wait, labels.Everything())
+	oo, err := listRes(c.getFactory(), ctx, c.gvr, ns, wait, labels.Everything())
 	if err != nil {
 		return nil, err
 	}
@@ -172,9 +172,9 @@ func (c *CronJob) ToggleSuspend(ctx context.Context, path string) error {
 }
 
 // Scan scans for cluster resource refs.
-func (c *CronJob) Scan(_ context.Context, gvr *client.GVR, fqn string, wait bool) (Refs, error) {
+func (c *CronJob) Scan(ctx context.Context, gvr *client.GVR, fqn string, wait bool) (Refs, error) {
 	ns, n := client.Namespaced(fqn)
-	oo, err := c.getFactory().List(c.gvr, ns, wait, labels.Everything())
+	oo, err := listRes(c.getFactory(), ctx, c.gvr, ns, wait, labels.Everything())
 	if err != nil {
 		return nil, err
 	}

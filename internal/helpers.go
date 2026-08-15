@@ -13,6 +13,7 @@ import (
 var (
 	fuzzyRx = regexp.MustCompile(`\A-f\s?([\w-]+)\b`)
 	labelRx = regexp.MustCompile(`\A\-l`)
+	ctxRx   = regexp.MustCompile(`\A!?ctx=([\w.-]+)\z`)
 )
 
 // Helpers...
@@ -42,4 +43,16 @@ func IsFuzzySelector(s string) (string, bool) {
 	}
 
 	return mm[1], true
+}
+
+// IsContextSelector matches a multi-context row filter of the form `ctx=NAME`
+// (keep only rows from NAME) or `!ctx=NAME` (drop rows from NAME). Returns
+// the target context name, whether the match is inverted, and ok=true when
+// the input parsed as a context selector.
+func IsContextSelector(s string) (string, bool, bool) {
+	mm := ctxRx.FindStringSubmatch(s)
+	if len(mm) != 2 {
+		return "", false, false
+	}
+	return mm[1], strings.HasPrefix(s, "!"), true
 }

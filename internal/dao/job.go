@@ -114,9 +114,9 @@ func (j *Job) GetInstanceWithContext(ctx context.Context, fqn string) (*batchv1.
 }
 
 // ScanSA scans for serviceaccount refs.
-func (j *Job) ScanSA(_ context.Context, fqn string, wait bool) (Refs, error) {
+func (j *Job) ScanSA(ctx context.Context, fqn string, wait bool) (Refs, error) {
 	ns, n := client.Namespaced(fqn)
-	oo, err := j.getFactory().List(j.gvr, ns, wait, labels.Everything())
+	oo, err := listRes(j.getFactory(), ctx, j.gvr, ns, wait, labels.Everything())
 	if err != nil {
 		return nil, err
 	}
@@ -140,9 +140,9 @@ func (j *Job) ScanSA(_ context.Context, fqn string, wait bool) (Refs, error) {
 }
 
 // Scan scans for resource references.
-func (j *Job) Scan(_ context.Context, gvr *client.GVR, fqn string, wait bool) (Refs, error) {
+func (j *Job) Scan(ctx context.Context, gvr *client.GVR, fqn string, wait bool) (Refs, error) {
 	ns, n := client.Namespaced(fqn)
-	oo, err := j.getFactory().List(j.gvr, ns, wait, labels.Everything())
+	oo, err := listRes(j.getFactory(), ctx, j.gvr, ns, wait, labels.Everything())
 	if err != nil {
 		return nil, err
 	}

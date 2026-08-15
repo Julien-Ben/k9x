@@ -11,16 +11,32 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/render"
 	"github.com/derailed/k9s/internal/slogs"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/informers"
 )
+
+// defaultChildListTimeout caps how long a single child's List is allowed to
+// block a fan-out tick. Picked so an unreachable cluster doesn't stall the
+// whole UI refresh, but long enough that a slow-but-healthy cluster still
+// returns under normal conditions.
+const defaultChildListTimeout = 3 * time.Second
+
+// ContextError pairs a per-child error with the context name it came from so
+// the view layer can surface partial-failure information (banner, panel
+// status, …) without losing the cluster-of-origin.
+type ContextError struct {
+	Context string
+	Err     error
+}
 
 // childFactory captures the subset of *Factory that MultiFactory consumes
 // from each per-context child. Defining it as an interface (instead of using
@@ -51,9 +67,21 @@ type childFactory interface {
 // routed to the primary only — describe/yaml/port-forward are blanket-disabled
 // in multi-context mode for the demo, so non-primary routing is not required.
 type MultiFactory struct {
-	children map[string]childFactory
-	primary  string
-	mx       sync.RWMutex
+	children            map[string]childFactory
+	primary             string
+	mx                  sync.RWMutex
+	childListTimeout    time.Duration
+	lastTickErrors      []ContextError
+	lastTickDivergences []ContextError
+	// flashedDivergences tracks (gvr, ctx) pairs already surfaced via the
+	// banner so the one-shot dedup survives across ticks. Keyed by
+	// gvr.String() + "@" + ctxName.
+	flashedDivergences map[string]struct{}
+	// health tracks the rolling per-context health state machine that drives
+	// the quarantine banner. Updated at the end of each listImpl tick.
+	health                  map[string]*childHealthState
+	pendingTransitions      []ContextHealthTransition
+	quarantineProbeInterval time.Duration
 }
 
 // NewMultiFactory builds a MultiFactory from a set of already-constructed
@@ -68,7 +96,14 @@ func NewMultiFactory(primary string, children map[string]*Factory) (*MultiFactor
 	for k, v := range children {
 		cc[k] = v
 	}
-	return &MultiFactory{children: cc, primary: primary}, nil
+	return &MultiFactory{
+		children:           cc,
+		primary:            primary,
+		childListTimeout:   defaultChildListTimeout,
+		flashedDivergences:      make(map[string]struct{}),
+		health:                  initHealth(cc),
+		quarantineProbeInterval: defaultQuarantineProbeInterval,
+	}, nil
 }
 
 // newMultiFactoryForTesting is an internal constructor used by tests in this
@@ -77,7 +112,182 @@ func newMultiFactoryForTesting(primary string, children map[string]childFactory)
 	if _, ok := children[primary]; !ok {
 		return nil, fmt.Errorf("primary context %q not present in children", primary)
 	}
-	return &MultiFactory{children: children, primary: primary}, nil
+	return &MultiFactory{
+		children:           children,
+		primary:            primary,
+		childListTimeout:   defaultChildListTimeout,
+		flashedDivergences:      make(map[string]struct{}),
+		health:                  initHealth(children),
+		quarantineProbeInterval: defaultQuarantineProbeInterval,
+	}, nil
+}
+
+// initHealth seeds the per-context health map at construction time so the
+// state machine doesn't need lazy nil checks on the hot path. Every child
+// starts Healthy.
+func initHealth(children map[string]childFactory) map[string]*childHealthState {
+	out := make(map[string]*childHealthState, len(children))
+	for name := range children {
+		out[name] = &childHealthState{state: HealthHealthy}
+	}
+	return out
+}
+
+// SetChildListTimeout overrides the per-child List deadline. Exposed so tests
+// can shorten the wait; production callers can leave the default in place.
+func (m *MultiFactory) SetChildListTimeout(d time.Duration) {
+	m.mx.Lock()
+	defer m.mx.Unlock()
+	if d > 0 {
+		m.childListTimeout = d
+	}
+}
+
+// SetQuarantineProbeInterval overrides the recovery-probe cadence for
+// quarantined children. Exposed so tests can compress the wait.
+func (m *MultiFactory) SetQuarantineProbeInterval(d time.Duration) {
+	m.mx.Lock()
+	defer m.mx.Unlock()
+	if d > 0 {
+		m.quarantineProbeInterval = d
+	}
+}
+
+// LastTickErrors returns a copy of the per-child errors captured during the
+// most recent List fan-out. Empty when the last tick succeeded across every
+// child. Used by the view layer to surface partial-failure banners without
+// poisoning the merged row set. Excludes IsNotFound — those are routed to
+// LastTickDivergences instead.
+func (m *MultiFactory) LastTickErrors() []ContextError {
+	m.mx.RLock()
+	defer m.mx.RUnlock()
+	if len(m.lastTickErrors) == 0 {
+		return nil
+	}
+	out := make([]ContextError, len(m.lastTickErrors))
+	copy(out, m.lastTickErrors)
+	return out
+}
+
+// LastTickDivergences returns the per-child errors where the resource type
+// (GVR) was missing on that cluster. Treated as legitimately-empty rather
+// than failed: counted toward success so the merged set ships normally.
+// Surfaced once via NewDivergencesForFlash to warn the user that they're
+// viewing partial data.
+func (m *MultiFactory) LastTickDivergences() []ContextError {
+	m.mx.RLock()
+	defer m.mx.RUnlock()
+	if len(m.lastTickDivergences) == 0 {
+		return nil
+	}
+	out := make([]ContextError, len(m.lastTickDivergences))
+	copy(out, m.lastTickDivergences)
+	return out
+}
+
+// recordTickHealthLocked applies one child's per-tick outcome to the health
+// state machine. err==nil counts as a success (resets the fail streak and
+// recovers a quarantined child); a non-nil err increments the streak and
+// flips to Quarantined once it crosses quarantineThreshold. Transitions are
+// recorded in pendingTransitions for the view layer to drain via
+// NewHealthTransitions. The caller must hold m.mx.
+func (m *MultiFactory) recordTickHealthLocked(ctx string, err error) {
+	h := m.health[ctx]
+	if h == nil {
+		h = &childHealthState{state: HealthHealthy}
+		m.health[ctx] = h
+	}
+	prev := h.state
+	if err == nil {
+		h.fails = 0
+		h.lastErr = nil
+		if prev == HealthQuarantined {
+			h.state = HealthHealthy
+			m.pendingTransitions = append(m.pendingTransitions, ContextHealthTransition{
+				Context: ctx, From: prev, To: HealthHealthy, At: time.Now(),
+			})
+		}
+		return
+	}
+	h.fails++
+	h.lastErr = err
+	if prev == HealthHealthy && h.fails >= quarantineThreshold {
+		h.state = HealthQuarantined
+		// Seed lastProbeAt with the transition time so the next tick falls
+		// inside the probe-interval silence window — the cluster just failed
+		// quarantineThreshold times in a row, no point re-probing immediately.
+		h.lastProbeAt = time.Now()
+		m.pendingTransitions = append(m.pendingTransitions, ContextHealthTransition{
+			Context: ctx, From: prev, To: HealthQuarantined, Err: err, At: h.lastProbeAt,
+		})
+	}
+}
+
+// HealthSnapshot returns a point-in-time copy of every child's health state.
+// Used by the cluster-info panel and tests.
+func (m *MultiFactory) HealthSnapshot() map[string]ClusterHealth {
+	m.mx.RLock()
+	defer m.mx.RUnlock()
+	out := make(map[string]ClusterHealth, len(m.health))
+	for name, h := range m.health {
+		out[name] = h.state
+	}
+	return out
+}
+
+// HealthSummary collapses HealthSnapshot into a tally + the sorted list of
+// currently-quarantined contexts. Used by the cluster-info panel which wants
+// a one-line "M/N healthy" summary rather than a per-context map.
+func (m *MultiFactory) HealthSummary() (total, healthy int, quarantined []string) {
+	m.mx.RLock()
+	defer m.mx.RUnlock()
+	total = len(m.health)
+	for name, h := range m.health {
+		if h.state == HealthHealthy {
+			healthy++
+			continue
+		}
+		quarantined = append(quarantined, name)
+	}
+	slices.Sort(quarantined)
+	return
+}
+
+// NewHealthTransitions drains and returns the Healthy↔Quarantined edges that
+// have occurred since the last call. The view layer calls this once per
+// refresh tick to dispatch transition flashes. Returning a fresh slice keeps
+// the dispatch idempotent — a transition is surfaced exactly once.
+func (m *MultiFactory) NewHealthTransitions() []ContextHealthTransition {
+	m.mx.Lock()
+	defer m.mx.Unlock()
+	if len(m.pendingTransitions) == 0 {
+		return nil
+	}
+	out := m.pendingTransitions
+	m.pendingTransitions = nil
+	return out
+}
+
+// NewDivergencesForFlash returns the subset of last-tick divergences for gvr
+// that have not yet been surfaced via the banner, and atomically marks them
+// as acknowledged so subsequent calls return only newly-discovered ones.
+// One-shot semantics scoped to (gvr, ctx) — re-fires only if the MultiFactory
+// is rebuilt (context-switch) or a *new* context starts diverging.
+//
+// Called by the view layer once per refresh tick after List returns.
+func (m *MultiFactory) NewDivergencesForFlash(gvr *client.GVR) []string {
+	m.mx.Lock()
+	defer m.mx.Unlock()
+	var out []string
+	for _, d := range m.lastTickDivergences {
+		key := gvr.String() + "@" + d.Context
+		if _, seen := m.flashedDivergences[key]; seen {
+			continue
+		}
+		m.flashedDivergences[key] = struct{}{}
+		out = append(out, d.Context)
+	}
+	return out
 }
 
 // Client returns the primary child's connection. In multi-context mode the
@@ -87,6 +297,29 @@ func (m *MultiFactory) Client() client.Connection {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 	return m.children[m.primary].Client()
+}
+
+// HasMetrics reports whether every child cluster exposes a metrics-server.
+// Conservative AND across children: in multi-context mode CPU/MEM columns are
+// only meaningful if every cluster can supply numbers, otherwise rows from
+// metric-less clusters would render as N/A and visually skew comparisons.
+func (m *MultiFactory) HasMetrics() bool {
+	m.mx.RLock()
+	defer m.mx.RUnlock()
+	for _, c := range m.children {
+		if !c.Client().HasMetrics() {
+			return false
+		}
+	}
+	return true
+}
+
+// Contexts returns the sorted list of child context names. Used by the view
+// layer to emit a startup summary flash and to power the cluster-info panel.
+func (m *MultiFactory) Contexts() []string {
+	m.mx.RLock()
+	defer m.mx.RUnlock()
+	return slices.Sorted(maps.Keys(m.children))
 }
 
 // ClientFor returns the client.Connection for the child identified by
@@ -124,7 +357,6 @@ func (m *MultiFactory) ListWithContext(ctx context.Context, gvr *client.GVR, ns 
 
 func (m *MultiFactory) listImpl(ctx context.Context, gvr *client.GVR, ns string, wait bool, sel labels.Selector) ([]runtime.Object, error) {
 	m.mx.RLock()
-	defer m.mx.RUnlock()
 
 	type childResult struct {
 		ctxName string
@@ -136,28 +368,88 @@ func (m *MultiFactory) listImpl(ctx context.Context, gvr *client.GVR, ns string,
 	// stable across refresh ticks (avoids visible row reshuffling).
 	ctxNames := slices.Sorted(maps.Keys(m.children))
 	// Honor KeyScopeContext: constrain fan-out to a single child if set.
+	// Scope-targeted calls bypass quarantine skipping below — the user (or
+	// drill-down) explicitly asked for THIS cluster, so we attempt it even
+	// if it's currently flagged unhealthy.
+	scopeTargeted := false
 	if ctx != nil {
 		if scope, ok := ctx.Value(internal.KeyScopeContext).(string); ok && scope != "" {
 			if _, exists := m.children[scope]; exists {
 				ctxNames = []string{scope}
+				scopeTargeted = true
 			} else {
+				m.mx.RUnlock()
 				return nil, fmt.Errorf("scope context %q not in children", scope)
 			}
 		}
 	}
+	timeout := m.childListTimeout
+	// Drop the read lock and re-acquire write to update probe timestamps
+	// on quarantined children we're about to attempt.
+	m.mx.RUnlock()
+	m.mx.Lock()
+	now := time.Now()
+	attemptable := make([]string, 0, len(ctxNames))
+	skipped := make([]string, 0)
+	probeInterval := m.quarantineProbeInterval
+	for _, n := range ctxNames {
+		h := m.health[n]
+		if !scopeTargeted && h != nil && h.state == HealthQuarantined && now.Sub(h.lastProbeAt) < probeInterval {
+			skipped = append(skipped, n)
+			continue
+		}
+		if h != nil && h.state == HealthQuarantined {
+			h.lastProbeAt = now
+		}
+		attemptable = append(attemptable, n)
+	}
+	snapshot := make(map[string]childFactory, len(attemptable))
+	for _, n := range attemptable {
+		snapshot[n] = m.children[n]
+	}
+	m.mx.Unlock()
+	// Replace ctxNames with the attempt list. Skipped children stay in
+	// their current health state — their counters don't move, the next
+	// probe window will refresh.
+	ctxNames = attemptable
+	_ = skipped // reserved for future telemetry; quarantined-skip is silent today
+
 	results := make([]childResult, 0, len(ctxNames))
 	var (
 		mu sync.Mutex
 		wg sync.WaitGroup
 	)
 	for _, ctxName := range ctxNames {
-		child := m.children[ctxName]
+		child := snapshot[ctxName]
 		wg.Add(1)
 		go func(name string, c childFactory) {
 			defer wg.Done()
-			oo, err := c.List(gvr, ns, wait, sel)
+			// Run the child's List in an inner goroutine so a stuck cluster
+			// (e.g. blocked on informer sync against an unreachable API
+			// server) doesn't stall the whole fan-out tick. The inner
+			// goroutine is allowed to leak past the deadline — it'll finish
+			// or be GC'd when the underlying List eventually returns. This
+			// trades a possible goroutine leak under sustained outage for
+			// UI responsiveness, which is the right call for a TUI.
+			type inner struct {
+				objs []runtime.Object
+				err  error
+			}
+			ch := make(chan inner, 1)
+			go func() {
+				oo, err := c.List(gvr, ns, wait, sel)
+				ch <- inner{objs: oo, err: err}
+			}()
+			var r childResult
+			r.ctxName = name
+			select {
+			case res := <-ch:
+				r.objs, r.err = res.objs, res.err
+			case <-time.After(timeout):
+				r.err = fmt.Errorf("list timed out after %s", timeout)
+			}
 			mu.Lock()
-			results = append(results, childResult{ctxName: name, objs: oo, err: err})
+			results = append(results, r)
 			mu.Unlock()
 		}(ctxName, child)
 	}
@@ -177,27 +469,66 @@ func (m *MultiFactory) listImpl(ctx context.Context, gvr *client.GVR, ns string,
 	})
 
 	var (
-		merged []runtime.Object
-		errs   []error
+		merged       []runtime.Object
+		errs         []ContextError
+		divergences  []ContextError
+		successes    int
 	)
 	for _, r := range results {
 		if r.err != nil {
-			errs = append(errs, fmt.Errorf("context %q: %w", r.ctxName, r.err))
+			if apierrors.IsNotFound(r.err) {
+				// Discovery divergence: cluster doesn't have this GVR. Treat
+				// as legitimately-empty (counts toward success) but route to
+				// the divergence channel so the user sees a one-shot banner.
+				divergences = append(divergences, ContextError{Context: r.ctxName, Err: r.err})
+				successes++
+				continue
+			}
+			errs = append(errs, ContextError{Context: r.ctxName, Err: r.err})
 			continue
 		}
+		successes++
 		for _, o := range r.objs {
 			tagged, err := tagWithSourceContext(o, r.ctxName)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("context %q: %w", r.ctxName, err))
+				errs = append(errs, ContextError{Context: r.ctxName, Err: err})
 				continue
 			}
 			merged = append(merged, tagged)
 		}
 	}
-	if len(errs) > 0 {
-		return merged, errors.Join(errs...)
+
+	// Stash for the view layer to surface via flash/banner.
+	m.mx.Lock()
+	m.lastTickErrors = errs
+	m.lastTickDivergences = divergences
+	// Drive the per-context health state machine off this tick's outcomes.
+	// Divergences (IsNotFound) count toward health: that cluster IS up, it
+	// just doesn't have this GVR.
+	failed := make(map[string]error, len(errs))
+	for _, e := range errs {
+		failed[e.Context] = e.Err
 	}
-	return merged, nil
+	for _, name := range ctxNames {
+		m.recordTickHealthLocked(name, failed[name])
+	}
+	m.mx.Unlock()
+
+	// Partial success: at least one child returned rows. Don't poison the
+	// merged set with an error — the caller would treat it as fatal and the
+	// UI would go blank. Per-context errors are still available via
+	// LastTickErrors for side-channel surfacing.
+	if successes > 0 {
+		return merged, nil
+	}
+	if len(errs) == 0 {
+		return merged, nil
+	}
+	joined := make([]error, 0, len(errs))
+	for _, e := range errs {
+		joined = append(joined, fmt.Errorf("context %q: %w", e.Context, e.Err))
+	}
+	return nil, errors.Join(joined...)
 }
 
 // tagWithSourceContext deep-copies the object (to avoid mutating the informer

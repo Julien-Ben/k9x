@@ -250,6 +250,13 @@ func (c *Command) defaultCmd(isRoot bool) error {
 	if isRoot {
 		defCmd = ctxCmd
 	}
+	// In multi-context mode the context picker isn't actionable (switching
+	// the active context is gated off while the feature is experimental),
+	// so landing on it would be a dead end. Drop straight into the pod view,
+	// overriding any persisted ActiveView from a prior single-context session.
+	if c.app.Config.K9s.MultiContextMode {
+		return c.run(cmd.NewInterpreter(podCmd), "", true, true)
+	}
 	p := cmd.NewInterpreter(c.app.Config.ActiveView())
 	if p.IsBlank() {
 		return c.run(p.Reset(defCmd, ""), "", true, true)

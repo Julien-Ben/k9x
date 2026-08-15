@@ -147,9 +147,9 @@ func (d *DaemonSet) GetInstanceWithContext(ctx context.Context, fqn string) (*ap
 }
 
 // ScanSA scans for serviceaccount refs.
-func (d *DaemonSet) ScanSA(_ context.Context, fqn string, wait bool) (Refs, error) {
+func (d *DaemonSet) ScanSA(ctx context.Context, fqn string, wait bool) (Refs, error) {
 	ns, n := client.Namespaced(fqn)
-	oo, err := d.getFactory().List(d.gvr, ns, wait, labels.Everything())
+	oo, err := listRes(d.getFactory(), ctx, d.gvr, ns, wait, labels.Everything())
 	if err != nil {
 		return nil, err
 	}
@@ -173,9 +173,9 @@ func (d *DaemonSet) ScanSA(_ context.Context, fqn string, wait bool) (Refs, erro
 }
 
 // Scan scans for cluster refs.
-func (d *DaemonSet) Scan(_ context.Context, gvr *client.GVR, fqn string, wait bool) (Refs, error) {
+func (d *DaemonSet) Scan(ctx context.Context, gvr *client.GVR, fqn string, wait bool) (Refs, error) {
 	ns, n := client.Namespaced(fqn)
-	oo, err := d.getFactory().List(d.gvr, ns, wait, labels.Everything())
+	oo, err := listRes(d.getFactory(), ctx, d.gvr, ns, wait, labels.Everything())
 	if err != nil {
 		return nil, err
 	}

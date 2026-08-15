@@ -42,8 +42,10 @@ func (Namespace) ColorerFunc() model1.ColorerFunc {
 		if re.Kind == model1.EventUpdate {
 			c = model1.StdColor
 		}
-		if strings.Contains(strings.TrimSpace(re.Row.Fields[0]), "*") {
-			c = model1.HighlightColor
+		if idx, ok := h.IndexOf("NAME", true); ok {
+			if strings.Contains(strings.TrimSpace(re.Row.Fields[idx]), "*") {
+				c = model1.HighlightColor
+			}
 		}
 
 		return c

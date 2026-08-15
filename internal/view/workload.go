@@ -116,7 +116,7 @@ func (w *Workload) defaultContext(gvr *client.GVR, fqn string) context.Context {
 		}
 	}
 	ctx = context.WithValue(ctx, internal.KeyNamespace, client.CleanseNamespace(w.App().Config.ActiveNamespace()))
-	ctx = context.WithValue(ctx, internal.KeyWithMetrics, w.App().factory.Client().HasMetrics())
+	ctx = context.WithValue(ctx, internal.KeyWithMetrics, w.App().HasMetrics())
 
 	return ctx
 }

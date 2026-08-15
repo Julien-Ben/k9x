@@ -62,8 +62,9 @@ func scanSARefs(evt *tcell.EventKey, a *App, t *Table, gvr *client.GVR) *tcell.E
 		return evt
 	}
 
+	scope := t.selectedContext()
 	ctx := context.Background()
-	refs, err := dao.ScanForSARefs(refContext(gvr, path, true)(ctx), a.factory)
+	refs, err := dao.ScanForSARefs(refContext(gvr, path, scope, true)(ctx), a.factory)
 	if err != nil {
 		a.Flash().Err(err)
 		return nil
@@ -74,7 +75,7 @@ func scanSARefs(evt *tcell.EventKey, a *App, t *Table, gvr *client.GVR) *tcell.E
 	}
 	a.Flash().Infof("Viewing references for %s::%s", gvr, path)
 	view := NewReference(client.RefGVR)
-	view.SetContextFn(refContext(gvr, path, false))
+	view.SetContextFn(refContext(gvr, path, scope, false))
 	if err := a.inject(view, false); err != nil {
 		a.Flash().Err(err)
 	}

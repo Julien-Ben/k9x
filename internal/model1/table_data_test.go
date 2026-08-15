@@ -17,6 +17,89 @@ func init() {
 	slog.SetDefault(slog.New(slog.DiscardHandler))
 }
 
+// TestTableData_MultiContextNoDedup asserts that rows with the same Row.ID
+// but different Source no longer collide on the rowEvents storage key.
+// Regression for the post-P1 "duplicates shrink over a few ticks" bug:
+// before StoreKey-based indexing, three identically-named resources from
+// different kubeconfig contexts collapsed into one slot and were
+// progressively removed by the Delete-by-ID pass.
+func TestTableData_MultiContextNoDedup(t *testing.T) {
+	header := Header{HeaderColumn{Name: "NAME"}}
+	rows := Rows{
+		{ID: "kube-system/coredns", Fields: Fields{"coredns"}, Source: "ctxA"},
+		{ID: "kube-system/coredns", Fields: Fields{"coredns"}, Source: "ctxB"},
+		{ID: "kube-system/coredns", Fields: Fields{"coredns"}, Source: "ctxC"},
+		{ID: "infra/cert-manager", Fields: Fields{"cert-manager"}, Source: "ctxA"},
+	}
+	td := NewTableDataWithRows(client.PodGVR, header, NewRowEvents(0))
+
+	// First refresh: empty-table bulk-add path.
+	td.Update(rows)
+	assert.Equal(t, 4, td.RowCount(), "all 4 rows must survive initial Update")
+	gotSources := collectSources(td, "kube-system/coredns")
+	assert.ElementsMatch(t, []string{"ctxA", "ctxB", "ctxC"}, gotSources)
+
+	// Second refresh with the same set: dedup pass must not drop any row.
+	td.Update(rows)
+	assert.Equal(t, 4, td.RowCount(), "no rows dropped after second tick")
+
+	// Third refresh: drop ctxB's coredns. Only the ctxB row should disappear.
+	without := Rows{
+		{ID: "kube-system/coredns", Fields: Fields{"coredns"}, Source: "ctxA"},
+		{ID: "kube-system/coredns", Fields: Fields{"coredns"}, Source: "ctxC"},
+		{ID: "infra/cert-manager", Fields: Fields{"cert-manager"}, Source: "ctxA"},
+	}
+	td.Update(without)
+	assert.Equal(t, 3, td.RowCount())
+	gotSources = collectSources(td, "kube-system/coredns")
+	assert.ElementsMatch(t, []string{"ctxA", "ctxC"}, gotSources)
+}
+
+func collectSources(td *TableData, fqn string) []string {
+	var out []string
+	td.GetRowEvents().Range(func(_ int, re RowEvent) bool {
+		if re.Row.ID == fqn {
+			out = append(out, re.Row.Source)
+		}
+		return true
+	})
+	return out
+}
+
+func TestTableDataFilter_ContextSelector(t *testing.T) {
+	header := Header{
+		HeaderColumn{Name: "NAME"},
+	}
+	rows := NewRowEventsWithEvts(
+		RowEvent{Row: Row{ID: "a", Fields: Fields{"pod-a"}, Source: "ctxA"}},
+		RowEvent{Row: Row{ID: "b", Fields: Fields{"pod-b"}, Source: "ctxB"}},
+		RowEvent{Row: Row{ID: "c", Fields: Fields{"pod-c"}, Source: "ctxA"}},
+	)
+
+	uu := map[string]struct {
+		filter   string
+		wantIDs  []string
+	}{
+		"keep_only_ctxA": {filter: "ctx=ctxA", wantIDs: []string{"a", "c"}},
+		"keep_only_ctxB": {filter: "ctx=ctxB", wantIDs: []string{"b"}},
+		"drop_ctxA":      {filter: "!ctx=ctxA", wantIDs: []string{"b"}},
+		"unknown_ctx":    {filter: "ctx=ctxZ", wantIDs: nil},
+	}
+	for k := range uu {
+		u := uu[k]
+		t.Run(k, func(t *testing.T) {
+			td := NewTableDataWithRows(client.PodGVR, header, rows)
+			out := td.Filter(FilterOpts{Filter: u.filter})
+			var got []string
+			out.GetRowEvents().Range(func(_ int, re RowEvent) bool {
+				got = append(got, re.Row.ID)
+				return true
+			})
+			assert.Equal(t, u.wantIDs, got)
+		})
+	}
+}
+
 func TestTableDataComputeSortCol(t *testing.T) {
 	uu := map[string]struct {
 		t1           *TableData
