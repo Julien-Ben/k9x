@@ -10,6 +10,7 @@ import (
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/render"
 	"github.com/derailed/k9s/internal/slogs"
+	"github.com/derailed/k9s/internal/watch"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -42,12 +43,34 @@ func (c *Context) List(context.Context, string) ([]runtime.Object, error) {
 	if err != nil {
 		return nil, err
 	}
+	state, hasState := c.getFactory().(RuntimeContextState)
+	health := map[string]watch.ClusterHealth{}
+	if hasState {
+		health = state.HealthSnapshot()
+	}
 	cc := make([]runtime.Object, 0, len(ctxs))
 	for k, v := range ctxs {
-		cc = append(cc, render.NewNamedContext(c.config(), k, v))
+		nc := render.NewNamedContext(c.config(), k, v)
+		if hasState {
+			nc.Managed = true
+			nc.Enabled = state.ContextEnabled(k)
+			nc.Health = contextHealthLabel(health[k])
+		}
+		cc = append(cc, nc)
 	}
 
 	return cc, nil
+}
+
+func contextHealthLabel(h watch.ClusterHealth) string {
+	switch h {
+	case watch.HealthDisabled:
+		return render.ContextHealthDisabled
+	case watch.HealthQuarantined:
+		return render.ContextHealthQuarantined
+	default:
+		return render.ContextHealthHealthy
+	}
 }
 
 // MustCurrentContextName return the active context name.

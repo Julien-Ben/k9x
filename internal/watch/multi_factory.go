@@ -30,6 +30,13 @@ import (
 // returns under normal conditions.
 const defaultChildListTimeout = 3 * time.Second
 
+const defaultContextReconcileDelay = 750 * time.Millisecond
+
+var (
+	ErrUnknownContext     = errors.New("unknown context")
+	ErrLastEnabledContext = errors.New("cannot disable the last active context")
+)
+
 // ContextError pairs a per-child error with the context name it came from so
 // the view layer can surface partial-failure information (banner, panel
 // status, …) without losing the cluster-of-origin.
@@ -71,6 +78,11 @@ type MultiFactory struct {
 	primary             string
 	mx                  sync.RWMutex
 	childListTimeout    time.Duration
+	contextToggleDelay  time.Duration
+	disabled            map[string]bool
+	actualDisabled      map[string]bool
+	reconcileTimer      *time.Timer
+	activeNS            string
 	lastTickErrors      []ContextError
 	lastTickDivergences []ContextError
 	// flashedDivergences tracks (gvr, ctx) pairs already surfaced via the
@@ -97,9 +109,12 @@ func NewMultiFactory(primary string, children map[string]*Factory) (*MultiFactor
 		cc[k] = v
 	}
 	return &MultiFactory{
-		children:           cc,
-		primary:            primary,
-		childListTimeout:   defaultChildListTimeout,
+		children:                cc,
+		primary:                 primary,
+		childListTimeout:        defaultChildListTimeout,
+		contextToggleDelay:      defaultContextReconcileDelay,
+		disabled:                make(map[string]bool),
+		actualDisabled:          make(map[string]bool),
 		flashedDivergences:      make(map[string]struct{}),
 		health:                  initHealth(cc),
 		quarantineProbeInterval: defaultQuarantineProbeInterval,
@@ -113,9 +128,12 @@ func newMultiFactoryForTesting(primary string, children map[string]childFactory)
 		return nil, fmt.Errorf("primary context %q not present in children", primary)
 	}
 	return &MultiFactory{
-		children:           children,
-		primary:            primary,
-		childListTimeout:   defaultChildListTimeout,
+		children:                children,
+		primary:                 primary,
+		childListTimeout:        defaultChildListTimeout,
+		contextToggleDelay:      defaultContextReconcileDelay,
+		disabled:                make(map[string]bool),
+		actualDisabled:          make(map[string]bool),
 		flashedDivergences:      make(map[string]struct{}),
 		health:                  initHealth(children),
 		quarantineProbeInterval: defaultQuarantineProbeInterval,
@@ -151,6 +169,134 @@ func (m *MultiFactory) SetQuarantineProbeInterval(d time.Duration) {
 	if d > 0 {
 		m.quarantineProbeInterval = d
 	}
+}
+
+// SetContextToggleDelay overrides the delayed runtime context reconcile.
+// Exposed so tests can shorten the wait; production keeps the default.
+func (m *MultiFactory) SetContextToggleDelay(d time.Duration) {
+	m.mx.Lock()
+	defer m.mx.Unlock()
+	if d > 0 {
+		m.contextToggleDelay = d
+	}
+}
+
+// ToggleContext flips the desired runtime fan-out state for a child context.
+// The next List observes the desired state immediately; informer Start /
+// Terminate work is coalesced by a delayed reconcile.
+func (m *MultiFactory) ToggleContext(name string) (bool, error) {
+	m.mx.Lock()
+	defer m.mx.Unlock()
+
+	if _, ok := m.children[name]; !ok {
+		return false, fmt.Errorf("%w: %s", ErrUnknownContext, name)
+	}
+
+	if !m.disabled[name] {
+		if m.enabledCountLocked() <= 1 {
+			return true, ErrLastEnabledContext
+		}
+		m.disabled[name] = true
+		m.scheduleContextReconcileLocked()
+		return false, nil
+	}
+
+	delete(m.disabled, name)
+	m.scheduleContextReconcileLocked()
+	return true, nil
+}
+
+// ContextEnabled reports the desired runtime fan-out state for a child context.
+func (m *MultiFactory) ContextEnabled(name string) bool {
+	m.mx.RLock()
+	defer m.mx.RUnlock()
+	_, ok := m.children[name]
+	return ok && !m.disabled[name]
+}
+
+// EnabledCount returns how many child contexts are currently desired-on.
+func (m *MultiFactory) EnabledCount() int {
+	m.mx.RLock()
+	defer m.mx.RUnlock()
+	return m.enabledCountLocked()
+}
+
+func (m *MultiFactory) enabledCountLocked() int {
+	count := 0
+	for name := range m.children {
+		if !m.disabled[name] {
+			count++
+		}
+	}
+	return count
+}
+
+func (m *MultiFactory) scheduleContextReconcileLocked() {
+	if m.reconcileTimer == nil {
+		m.reconcileTimer = time.AfterFunc(m.contextToggleDelay, m.reconcileRuntimeContexts)
+		return
+	}
+	m.reconcileTimer.Reset(m.contextToggleDelay)
+}
+
+type contextReconcileOp struct {
+	name    string
+	child   childFactory
+	disable bool
+}
+
+func (m *MultiFactory) reconcileRuntimeContexts() {
+	m.mx.Lock()
+	ops := make([]contextReconcileOp, 0, len(m.children))
+	activeNS := m.activeNS
+	for name, child := range m.children {
+		wantDisabled := m.disabled[name]
+		if m.actualDisabled[name] == wantDisabled {
+			continue
+		}
+		ops = append(ops, contextReconcileOp{name: name, child: child, disable: wantDisabled})
+	}
+	m.mx.Unlock()
+
+	for _, op := range ops {
+		if op.disable {
+			op.child.Terminate()
+		} else {
+			op.child.Start(activeNS)
+		}
+
+		m.mx.Lock()
+		if op.disable {
+			m.actualDisabled[op.name] = true
+			m.resetHealthLocked(op.name)
+		} else {
+			delete(m.actualDisabled, op.name)
+		}
+		m.mx.Unlock()
+	}
+}
+
+func (m *MultiFactory) resetHealthLocked(name string) {
+	h := m.health[name]
+	if h == nil {
+		h = &childHealthState{}
+		m.health[name] = h
+	}
+	h.state = HealthHealthy
+	h.fails = 0
+	h.lastErr = nil
+	h.lastProbeAt = time.Time{}
+
+	if len(m.pendingTransitions) == 0 {
+		return
+	}
+	out := m.pendingTransitions[:0]
+	for _, tr := range m.pendingTransitions {
+		if tr.Context != name {
+			out = append(out, tr)
+		}
+	}
+	m.pendingTransitions = out
 }
 
 // LastTickErrors returns a copy of the per-child errors captured during the
@@ -192,6 +338,9 @@ func (m *MultiFactory) LastTickDivergences() []ContextError {
 // recorded in pendingTransitions for the view layer to drain via
 // NewHealthTransitions. The caller must hold m.mx.
 func (m *MultiFactory) recordTickHealthLocked(ctx string, err error) {
+	if m.disabled[ctx] {
+		return
+	}
 	h := m.health[ctx]
 	if h == nil {
 		h = &childHealthState{state: HealthHealthy}
@@ -230,6 +379,10 @@ func (m *MultiFactory) HealthSnapshot() map[string]ClusterHealth {
 	defer m.mx.RUnlock()
 	out := make(map[string]ClusterHealth, len(m.health))
 	for name, h := range m.health {
+		if m.disabled[name] {
+			out[name] = HealthDisabled
+			continue
+		}
 		out[name] = h.state
 	}
 	return out
@@ -241,8 +394,11 @@ func (m *MultiFactory) HealthSnapshot() map[string]ClusterHealth {
 func (m *MultiFactory) HealthSummary() (total, healthy int, quarantined []string) {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
-	total = len(m.health)
 	for name, h := range m.health {
+		if m.disabled[name] {
+			continue
+		}
+		total++
 		if h.state == HealthHealthy {
 			healthy++
 			continue
@@ -306,7 +462,10 @@ func (m *MultiFactory) Client() client.Connection {
 func (m *MultiFactory) HasMetrics() bool {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
-	for _, c := range m.children {
+	for name, c := range m.children {
+		if m.disabled[name] {
+			continue
+		}
 		if !c.Client().HasMetrics() {
 			return false
 		}
@@ -393,6 +552,10 @@ func (m *MultiFactory) listImpl(ctx context.Context, gvr *client.GVR, ns string,
 	skipped := make([]string, 0)
 	probeInterval := m.quarantineProbeInterval
 	for _, n := range ctxNames {
+		if !scopeTargeted && m.disabled[n] {
+			skipped = append(skipped, n)
+			continue
+		}
 		h := m.health[n]
 		if !scopeTargeted && h != nil && h.state == HealthQuarantined && now.Sub(h.lastProbeAt) < probeInterval {
 			skipped = append(skipped, n)
@@ -469,10 +632,10 @@ func (m *MultiFactory) listImpl(ctx context.Context, gvr *client.GVR, ns string,
 	})
 
 	var (
-		merged       []runtime.Object
-		errs         []ContextError
-		divergences  []ContextError
-		successes    int
+		merged      []runtime.Object
+		errs        []ContextError
+		divergences []ContextError
+		successes   int
 	)
 	for _, r := range results {
 		if r.err != nil {
@@ -600,7 +763,10 @@ func (m *MultiFactory) CanForResource(ns string, gvr *client.GVR, verbs []string
 func (m *MultiFactory) WaitForCacheSync() {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
-	for _, c := range m.children {
+	for name, c := range m.children {
+		if m.disabled[name] {
+			continue
+		}
 		c.WaitForCacheSync()
 	}
 }
@@ -611,6 +777,9 @@ func (m *MultiFactory) HasSynced(gvr *client.GVR, ns string) (bool, error) {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 	for ctxName, c := range m.children {
+		if m.disabled[ctxName] {
+			continue
+		}
 		ok, err := c.HasSynced(gvr, ns)
 		if err != nil {
 			return false, fmt.Errorf("context %q: %w", ctxName, err)
@@ -624,9 +793,19 @@ func (m *MultiFactory) HasSynced(gvr *client.GVR, ns string) (bool, error) {
 
 // Start starts informers in every child for the given namespace.
 func (m *MultiFactory) Start(ns string) {
-	m.mx.RLock()
-	defer m.mx.RUnlock()
+	m.mx.Lock()
+	m.activeNS = ns
+	snapshot := make(map[string]childFactory, len(m.children))
 	for ctxName, c := range m.children {
+		if m.disabled[ctxName] {
+			continue
+		}
+		delete(m.actualDisabled, ctxName)
+		snapshot[ctxName] = c
+	}
+	m.mx.Unlock()
+
+	for ctxName, c := range snapshot {
 		slog.Debug("MultiFactory: starting informers", slogs.Context, ctxName, slogs.Namespace, ns)
 		c.Start(ns)
 	}
@@ -634,9 +813,17 @@ func (m *MultiFactory) Start(ns string) {
 
 // Terminate stops informers in every child.
 func (m *MultiFactory) Terminate() {
-	m.mx.RLock()
-	defer m.mx.RUnlock()
+	m.mx.Lock()
+	if m.reconcileTimer != nil {
+		m.reconcileTimer.Stop()
+	}
+	snapshot := make(map[string]childFactory, len(m.children))
 	for ctxName, c := range m.children {
+		snapshot[ctxName] = c
+	}
+	m.mx.Unlock()
+
+	for ctxName, c := range snapshot {
 		slog.Debug("MultiFactory: terminating informers", slogs.Context, ctxName)
 		c.Terminate()
 	}
@@ -645,10 +832,19 @@ func (m *MultiFactory) Terminate() {
 // SetActiveNS sets the active namespace on every child. All children get the
 // same namespace (uniform-namespace assumption — Option A in the design doc).
 func (m *MultiFactory) SetActiveNS(ns string) error {
-	m.mx.RLock()
-	defer m.mx.RUnlock()
-	var errs []error
+	m.mx.Lock()
+	m.activeNS = ns
+	snapshot := make(map[string]childFactory, len(m.children))
 	for ctxName, c := range m.children {
+		if m.disabled[ctxName] {
+			continue
+		}
+		snapshot[ctxName] = c
+	}
+	m.mx.Unlock()
+
+	var errs []error
+	for ctxName, c := range snapshot {
 		if err := c.SetActiveNS(ns); err != nil {
 			errs = append(errs, fmt.Errorf("context %q: %w", ctxName, err))
 		}

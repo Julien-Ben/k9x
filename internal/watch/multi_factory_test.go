@@ -6,6 +6,7 @@ package watch
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -445,6 +446,192 @@ func TestMultiFactory_Health_NotFoundDoesNotCount(t *testing.T) {
 	assert.Empty(t, mf.NewHealthTransitions())
 }
 
+func TestMultiFactory_ToggleContext_SkipsListImmediately(t *testing.T) {
+	var hitA, hitB int32
+	childA := &fakeChild{
+		listResult: []runtime.Object{newUnstructuredPod("default", "p-a")},
+		onList:     func() { atomic.AddInt32(&hitA, 1) },
+	}
+	childB := &fakeChild{
+		listResult: []runtime.Object{newUnstructuredPod("default", "p-b")},
+		onList:     func() { atomic.AddInt32(&hitB, 1) },
+	}
+
+	mf, err := newMultiFactoryForTesting("ctxA", map[string]childFactory{
+		"ctxA": childA,
+		"ctxB": childB,
+	})
+	require.NoError(t, err)
+	mf.SetContextToggleDelay(time.Hour)
+
+	enabled, err := mf.ToggleContext("ctxB")
+	require.NoError(t, err)
+	assert.False(t, enabled)
+	assert.False(t, mf.ContextEnabled("ctxB"))
+	assert.Equal(t, 1, mf.EnabledCount())
+
+	merged, err := mf.List(client.PodGVR, "default", false, labels.Everything())
+	require.NoError(t, err)
+	require.Len(t, merged, 1)
+	assert.Equal(t, "p-a", merged[0].(*unstructured.Unstructured).GetName())
+	assert.Equal(t, int32(1), atomic.LoadInt32(&hitA))
+	assert.Equal(t, int32(0), atomic.LoadInt32(&hitB), "disabled context must be skipped before reconcile fires")
+}
+
+func TestMultiFactory_ToggleContext_LastEnabledGuard(t *testing.T) {
+	mf, err := newMultiFactoryForTesting("ctxA", map[string]childFactory{
+		"ctxA": &fakeChild{},
+		"ctxB": &fakeChild{},
+	})
+	require.NoError(t, err)
+	mf.SetContextToggleDelay(time.Hour)
+
+	enabled, err := mf.ToggleContext("ctxB")
+	require.NoError(t, err)
+	assert.False(t, enabled)
+
+	enabled, err = mf.ToggleContext("ctxA")
+	require.ErrorIs(t, err, ErrLastEnabledContext)
+	assert.True(t, enabled, "guarded context remains enabled")
+	assert.True(t, mf.ContextEnabled("ctxA"))
+	assert.False(t, mf.ContextEnabled("ctxB"))
+	assert.Equal(t, 1, mf.EnabledCount())
+}
+
+func TestMultiFactory_ToggleContext_CoalescesReconcile(t *testing.T) {
+	childB := &fakeChild{}
+	mf, err := newMultiFactoryForTesting("ctxA", map[string]childFactory{
+		"ctxA": &fakeChild{},
+		"ctxB": childB,
+	})
+	require.NoError(t, err)
+	mf.SetContextToggleDelay(10 * time.Millisecond)
+
+	_, err = mf.ToggleContext("ctxB")
+	require.NoError(t, err)
+	_, err = mf.ToggleContext("ctxB")
+	require.NoError(t, err)
+	_, err = mf.ToggleContext("ctxB")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&childB.terminateCalls) == 1
+	}, time.Second, 5*time.Millisecond)
+	assert.Equal(t, int32(0), atomic.LoadInt32(&childB.startCalls), "off/on/off should converge with one terminate and no start")
+
+	baseTerminate := atomic.LoadInt32(&childB.terminateCalls)
+	_, err = mf.ToggleContext("ctxB")
+	require.NoError(t, err)
+	_, err = mf.ToggleContext("ctxB")
+	require.NoError(t, err)
+	time.Sleep(30 * time.Millisecond)
+	assert.Equal(t, baseTerminate, atomic.LoadInt32(&childB.terminateCalls), "off/on landing back on actual state should do no work")
+}
+
+func TestMultiFactory_ToggleContext_ReenableRestartsWithActiveNamespace(t *testing.T) {
+	childB := &fakeChild{}
+	mf, err := newMultiFactoryForTesting("ctxA", map[string]childFactory{
+		"ctxA": &fakeChild{},
+		"ctxB": childB,
+	})
+	require.NoError(t, err)
+	mf.SetContextToggleDelay(10 * time.Millisecond)
+	mf.Start("team-a")
+	baseStarts := atomic.LoadInt32(&childB.startCalls)
+
+	_, err = mf.ToggleContext("ctxB")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&childB.terminateCalls) == 1
+	}, time.Second, 5*time.Millisecond)
+
+	enabled, err := mf.ToggleContext("ctxB")
+	require.NoError(t, err)
+	assert.True(t, enabled)
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&childB.startCalls) == baseStarts+1
+	}, time.Second, 5*time.Millisecond)
+	assert.Equal(t, "team-a", childB.lastStartNamespace())
+}
+
+func TestMultiFactory_ToggleContext_DisabledExcludedFromHealthSummary(t *testing.T) {
+	bad := &fakeChild{listErr: errors.New("boom")}
+	good := &fakeChild{listResult: []runtime.Object{newUnstructuredPod("d", "p")}}
+	mf, err := newMultiFactoryForTesting("ctxGood", map[string]childFactory{
+		"ctxGood": good,
+		"ctxBad":  bad,
+	})
+	require.NoError(t, err)
+	mf.SetContextToggleDelay(10 * time.Millisecond)
+
+	for i := 0; i < quarantineThreshold; i++ {
+		_, _ = mf.List(client.PodGVR, "default", false, labels.Everything())
+	}
+	require.Equal(t, HealthQuarantined, mf.HealthSnapshot()["ctxBad"])
+
+	_, err = mf.ToggleContext("ctxBad")
+	require.NoError(t, err)
+
+	total, healthy, quarantined := mf.HealthSummary()
+	assert.Equal(t, 1, total)
+	assert.Equal(t, 1, healthy)
+	assert.Empty(t, quarantined)
+	assert.Equal(t, HealthDisabled, mf.HealthSnapshot()["ctxBad"])
+
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&bad.terminateCalls) == 1
+	}, time.Second, 5*time.Millisecond)
+	enabled, err := mf.ToggleContext("ctxBad")
+	require.NoError(t, err)
+	assert.True(t, enabled)
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&bad.startCalls) == 1
+	}, time.Second, 5*time.Millisecond)
+	assert.Equal(t, HealthHealthy, mf.HealthSnapshot()["ctxBad"], "disable should reset stale quarantine state")
+}
+
+func TestMultiFactory_HasMetrics_SkipsDisabledChildren(t *testing.T) {
+	childA := &fakeChild{conn: &stubConn{metricsStub: true, hasMetrics: true}}
+	childB := &fakeChild{conn: &stubConn{metricsStub: true, hasMetrics: false}}
+	mf, err := newMultiFactoryForTesting("ctxA", map[string]childFactory{
+		"ctxA": childA,
+		"ctxB": childB,
+	})
+	require.NoError(t, err)
+	assert.False(t, mf.HasMetrics())
+
+	_, err = mf.ToggleContext("ctxB")
+	require.NoError(t, err)
+	assert.True(t, mf.HasMetrics(), "disabled metrics-less child must not veto enabled set")
+}
+
+func TestMultiFactory_RuntimeIteratorsSkipDisabledChildren(t *testing.T) {
+	childA := &fakeChild{}
+	childB := &fakeChild{}
+	mf, err := newMultiFactoryForTesting("ctxA", map[string]childFactory{
+		"ctxA": childA,
+		"ctxB": childB,
+	})
+	require.NoError(t, err)
+	mf.SetContextToggleDelay(time.Hour)
+
+	_, err = mf.ToggleContext("ctxB")
+	require.NoError(t, err)
+
+	mf.WaitForCacheSync()
+	_, err = mf.HasSynced(client.PodGVR, "default")
+	require.NoError(t, err)
+	err = mf.SetActiveNS("team-a")
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(1), atomic.LoadInt32(&childA.waitSyncCalls))
+	assert.Equal(t, int32(0), atomic.LoadInt32(&childB.waitSyncCalls))
+	assert.Equal(t, int32(1), atomic.LoadInt32(&childA.hasSyncedCalls))
+	assert.Equal(t, int32(0), atomic.LoadInt32(&childB.hasSyncedCalls))
+	assert.Equal(t, int32(1), atomic.LoadInt32(&childA.setNSCalls))
+	assert.Equal(t, int32(0), atomic.LoadInt32(&childB.setNSCalls))
+}
+
 // TestMultiFactory_HasMetrics_AllOrNone asserts the conservative AND across
 // children: if any cluster lacks metrics, HasMetrics returns false so the UI
 // hides CPU/MEM columns rather than rendering N/A for metric-less rows.
@@ -544,6 +731,14 @@ type fakeChild struct {
 	onList     func()
 	onGet      func()
 	conn       client.Connection
+	mx         sync.Mutex
+	lastStart  string
+
+	startCalls     int32
+	terminateCalls int32
+	setNSCalls     int32
+	waitSyncCalls  int32
+	hasSyncedCalls int32
 }
 
 func (f *fakeChild) Client() client.Connection { return f.conn }
@@ -591,13 +786,33 @@ func (f *fakeChild) ForResource(string, *client.GVR) (informers.GenericInformer,
 func (f *fakeChild) CanForResource(string, *client.GVR, []string) (informers.GenericInformer, error) {
 	return nil, nil
 }
-func (f *fakeChild) WaitForCacheSync()                                {}
-func (f *fakeChild) HasSynced(*client.GVR, string) (bool, error)      { return true, nil }
-func (f *fakeChild) Start(string)                                     {}
-func (f *fakeChild) Terminate()                                       {}
-func (f *fakeChild) SetActiveNS(string) error                         { return nil }
-func (f *fakeChild) AddForwarder(Forwarder)                           {}
-func (f *fakeChild) ForwarderFor(string) (Forwarder, bool)            { return nil, false }
-func (f *fakeChild) DeleteForwarder(string)                           {}
-func (f *fakeChild) Forwarders() Forwarders                           { return nil }
-func (f *fakeChild) ValidatePortForwards()                            {}
+func (f *fakeChild) WaitForCacheSync() {
+	atomic.AddInt32(&f.waitSyncCalls, 1)
+}
+func (f *fakeChild) HasSynced(*client.GVR, string) (bool, error) {
+	atomic.AddInt32(&f.hasSyncedCalls, 1)
+	return true, nil
+}
+func (f *fakeChild) Start(ns string) {
+	atomic.AddInt32(&f.startCalls, 1)
+	f.mx.Lock()
+	defer f.mx.Unlock()
+	f.lastStart = ns
+}
+func (f *fakeChild) Terminate() {
+	atomic.AddInt32(&f.terminateCalls, 1)
+}
+func (f *fakeChild) SetActiveNS(string) error {
+	atomic.AddInt32(&f.setNSCalls, 1)
+	return nil
+}
+func (f *fakeChild) lastStartNamespace() string {
+	f.mx.Lock()
+	defer f.mx.Unlock()
+	return f.lastStart
+}
+func (f *fakeChild) AddForwarder(Forwarder)                {}
+func (f *fakeChild) ForwarderFor(string) (Forwarder, bool) { return nil, false }
+func (f *fakeChild) DeleteForwarder(string)                {}
+func (f *fakeChild) Forwarders() Forwarders                { return nil }
+func (f *fakeChild) ValidatePortForwards()                 {}

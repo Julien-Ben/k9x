@@ -300,7 +300,9 @@ func (t *Table) reconcile(ctx context.Context) error {
 	}
 	r := meta.Renderer
 	r.SetViewSetting(t.vs)
-	if multi, _ := ctx.Value(internal.KeyMultiContext).(bool); multi && !client.IsNestedGVR(t.gvr) {
+	if multi, _ := ctx.Value(internal.KeyMultiContext).(bool); multi && t.gvr == client.CtGVR {
+		r = new(render.ContextManager)
+	} else if multi && !client.IsNestedGVR(t.gvr) {
 		r = render.NewMultiContextRenderer(r)
 	}
 
