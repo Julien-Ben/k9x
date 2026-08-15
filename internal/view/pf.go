@@ -155,7 +155,7 @@ func (p *PortForward) deleteCmd(evt *tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 
-	selections := p.GetTable().GetSelectedItems()
+	selections := p.GetTable().GetSelectedRefs()
 	if len(selections) == 0 {
 		return evt
 	}
@@ -165,7 +165,7 @@ func (p *PortForward) deleteCmd(evt *tcell.EventKey) *tcell.EventKey {
 	var msg string
 	if len(selections) > 1 {
 		msg = fmt.Sprintf("Delete %d marked %s?", len(selections), p.GVR())
-	} else if h, err := pfToHuman(selections[0]); err == nil {
+	} else if h, err := pfToHuman(selections[0].ID); err == nil {
 		msg = fmt.Sprintf("Delete %s %s?", p.GVR().R(), h)
 	} else {
 		p.App().Flash().Err(err)
@@ -177,7 +177,7 @@ func (p *PortForward) deleteCmd(evt *tcell.EventKey) *tcell.EventKey {
 		for _, s := range selections {
 			var pf dao.PortForward
 			pf.Init(p.App().factory, client.PfGVR)
-			if err := pf.Delete(context.Background(), s, nil, dao.DefaultGrace); err != nil {
+			if err := pf.Delete(context.Background(), s.ID, nil, dao.DefaultGrace); err != nil {
 				p.App().Flash().Err(err)
 				return
 			}

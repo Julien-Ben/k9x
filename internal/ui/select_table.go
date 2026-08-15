@@ -16,7 +16,7 @@ type SelectTable struct {
 
 	model      Tabular
 	selectedFn func(string) string
-	marks      sets.Set[string]
+	marks      sets.Set[model1.RowIdent]
 	selFgColor tcell.Color
 	selBgColor tcell.Color
 }
@@ -44,11 +44,14 @@ func (s *SelectTable) SelectFirstRow() {
 	}
 }
 
-// GetSelectedItems return currently marked or selected items names.
-func (s *SelectTable) GetSelectedItems() []string {
+// GetSelectedRefs return currently marked or selected row identities.
+func (s *SelectTable) GetSelectedRefs() []model1.RowIdent {
 	if s.marks.Len() == 0 {
+		if row := s.GetSelectedRowRef(); row != nil {
+			return []model1.RowIdent{row.Ident()}
+		}
 		if item := s.GetSelectedItem(); item != "" {
-			return []string{item}
+			return []model1.RowIdent{{ID: item}}
 		}
 		return nil
 	}
@@ -61,13 +64,18 @@ func (s *SelectTable) GetSelectedItems() []string {
 // is a bare string) so callers added before the multi-context work keep
 // functioning.
 func cellRowID(ref any) (string, bool) {
+	ident, ok := cellRowIdent(ref)
+	return ident.ID, ok
+}
+
+func cellRowIdent(ref any) (model1.RowIdent, bool) {
 	switch v := ref.(type) {
 	case model1.Row:
-		return v.ID, true
+		return v.Ident(), true
 	case string:
-		return v, true
+		return model1.RowIdent{ID: v}, true
 	default:
-		return "", false
+		return model1.RowIdent{}, false
 	}
 }
 
@@ -78,6 +86,14 @@ func (s *SelectTable) GetRowID(index int) (string, bool) {
 		return "", false
 	}
 	return cellRowID(cell.GetReference())
+}
+
+func (s *SelectTable) getRowRef(index int) (model1.RowIdent, bool) {
+	cell := s.GetCell(index, 0)
+	if cell == nil {
+		return model1.RowIdent{}, false
+	}
+	return cellRowIdent(cell.GetReference())
 }
 
 // GetSelectedRowRef returns the currently selected row by reading the cell-0
@@ -167,18 +183,18 @@ func (s *SelectTable) ClearMarks() {
 }
 
 // DeleteMark delete a marked item.
-func (s *SelectTable) DeleteMark(k string) {
+func (s *SelectTable) DeleteMark(k model1.RowIdent) {
 	s.marks.Delete(k)
 }
 
 // ToggleMark toggles marked row.
 func (s *SelectTable) ToggleMark() {
-	sel := s.GetSelectedItem()
-	if sel == "" {
+	sel, ok := s.getRowRef(s.GetSelectedRowIndex())
+	if !ok || sel.ID == "" {
 		return
 	}
 	if s.marks.Has(sel) {
-		s.marks.Delete(s.GetSelectedItem())
+		s.marks.Delete(sel)
 	} else {
 		s.marks.Insert(sel)
 	}
@@ -196,11 +212,11 @@ func (s *SelectTable) SpanMark() {
 	}
 	// Look back to find previous mark
 	for i := selIndex - 1; i > 0; i-- {
-		id, ok := s.GetRowID(i)
+		ref, ok := s.getRowRef(i)
 		if !ok {
 			break
 		}
-		if s.marks.Has(id) {
+		if s.marks.Has(ref) {
 			prev = i
 			break
 		}
@@ -212,11 +228,11 @@ func (s *SelectTable) SpanMark() {
 
 	// Look forward to see if we have a mark
 	for i := selIndex; i < s.GetRowCount(); i++ {
-		id, ok := s.GetRowID(i)
+		ref, ok := s.getRowRef(i)
 		if !ok {
 			break
 		}
-		if s.marks.Has(id) {
+		if s.marks.Has(ref) {
 			prev = i
 			break
 		}
@@ -232,11 +248,11 @@ func (s *SelectTable) markRange(prev, curr int) {
 		prev, curr = curr, prev
 	}
 	for i := prev + 1; i <= curr; i++ {
-		id, ok := s.GetRowID(i)
+		ref, ok := s.getRowRef(i)
 		if !ok {
 			break
 		}
-		s.marks.Insert(id)
+		s.marks.Insert(ref)
 		cell := s.GetCell(s.GetSelectedRowIndex(), 0)
 		if cell == nil {
 			break
@@ -246,6 +262,6 @@ func (s *SelectTable) markRange(prev, curr int) {
 }
 
 // IsMarked returns true if this item was marked.
-func (s *SelectTable) IsMarked(item string) bool {
+func (s *SelectTable) IsMarked(item model1.RowIdent) bool {
 	return s.marks.Has(item)
 }

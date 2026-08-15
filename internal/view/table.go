@@ -268,14 +268,14 @@ func (t *Table) sortSelectedColumnCmd(*tcell.EventKey) *tcell.EventKey {
 }
 
 func (t *Table) cpCmd(evt *tcell.EventKey) *tcell.EventKey {
-	paths := t.GetSelectedItems()
-	if len(paths) == 0 {
+	refs := t.GetSelectedRefs()
+	if len(refs) == 0 {
 		return evt
 	}
 
-	names := make([]string, 0, len(paths))
-	for _, path := range paths {
-		_, n := client.Namespaced(path)
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		_, n := client.Namespaced(ref.ID)
 		names = append(names, n)
 	}
 
@@ -295,14 +295,14 @@ func (t *Table) cpCmd(evt *tcell.EventKey) *tcell.EventKey {
 }
 
 func (t *Table) cpNsCmd(evt *tcell.EventKey) *tcell.EventKey {
-	paths := t.GetSelectedItems()
-	if len(paths) == 0 {
+	refs := t.GetSelectedRefs()
+	if len(refs) == 0 {
 		return evt
 	}
 
-	namespaces := make([]string, 0, len(paths))
-	for _, path := range paths {
-		ns, _ := client.Namespaced(path)
+	namespaces := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		ns, _ := client.Namespaced(ref.ID)
 		namespaces = append(namespaces, ns)
 	}
 

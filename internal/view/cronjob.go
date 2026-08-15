@@ -12,6 +12,7 @@ import (
 	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/dao"
+	"github.com/derailed/k9s/internal/model1"
 	"github.com/derailed/k9s/internal/slogs"
 	"github.com/derailed/k9s/internal/ui"
 	"github.com/derailed/k9s/internal/ui/dialog"
@@ -86,13 +87,13 @@ func (c *CronJob) bindKeys(aa *ui.KeyActions) {
 }
 
 func (c *CronJob) triggerCmd(evt *tcell.EventKey) *tcell.EventKey {
-	fqns := c.GetTable().GetSelectedItems()
-	if len(fqns) == 0 {
+	refs := c.GetTable().GetSelectedRefs()
+	if len(refs) == 0 {
 		return evt
 	}
-	msg := fmt.Sprintf("Trigger CronJob: %s?", fqns[0])
-	if len(fqns) > 1 {
-		msg = fmt.Sprintf("Trigger %d CronJobs?", len(fqns))
+	msg := fmt.Sprintf("Trigger CronJob: %s?", refs[0].ID)
+	if len(refs) > 1 {
+		msg = fmt.Sprintf("Trigger %d CronJobs?", len(refs))
 	}
 	d := c.App().Styles.Dialog()
 	dialog.ShowConfirm(&d, c.App().Content.Pages, "Confirm Job Trigger", msg, func() {
@@ -107,11 +108,11 @@ func (c *CronJob) triggerCmd(evt *tcell.EventKey) *tcell.EventKey {
 			return
 		}
 
-		for _, fqn := range fqns {
-			if err := runner.Run(fqn); err != nil {
-				c.App().Flash().Errf("CronJob trigger failed for %s: %v", fqn, err)
+		for _, ref := range refs {
+			if err := runner.Run(scopedCtx(context.Background(), ref), ref.ID); err != nil {
+				c.App().Flash().Errf("CronJob trigger failed for %s: %v", ref.ID, err)
 			} else {
-				c.App().Flash().Infof("Triggered Job %s %s", c.GVR(), fqn)
+				c.App().Flash().Infof("Triggered Job %s %s", c.GVR(), ref.ID)
 			}
 		}
 	}, func() {})
@@ -121,9 +122,9 @@ func (c *CronJob) triggerCmd(evt *tcell.EventKey) *tcell.EventKey {
 
 func (c *CronJob) toggleSuspendCmd(evt *tcell.EventKey) *tcell.EventKey {
 	table := c.GetTable()
-	sel := table.GetSelectedItem()
+	refs := table.GetSelectedRefs()
 
-	if sel == "" {
+	if len(refs) == 0 || refs[0].ID == "" {
 		return evt
 	}
 
@@ -137,12 +138,12 @@ func (c *CronJob) toggleSuspendCmd(evt *tcell.EventKey) *tcell.EventKey {
 	c.Stop()
 	defer c.Start()
 
-	c.showSuspendDialog(cell, sel)
+	c.showSuspendDialog(cell, refs[0])
 
 	return nil
 }
 
-func (c *CronJob) showSuspendDialog(cell *tview.TableCell, sel string) {
+func (c *CronJob) showSuspendDialog(cell *tview.TableCell, sel model1.RowIdent) {
 	title := "Suspend"
 
 	if strings.TrimSpace(cell.Text) == defaultSuspendStatus {
@@ -150,8 +151,8 @@ func (c *CronJob) showSuspendDialog(cell *tview.TableCell, sel string) {
 	}
 
 	d := c.App().Styles.Dialog()
-	dialog.ShowConfirm(&d, c.App().Content.Pages, title, sel, func() {
-		ctx, cancel := context.WithTimeout(context.Background(), c.App().Conn().Config().CallTimeout())
+	dialog.ShowConfirm(&d, c.App().Content.Pages, title, sel.ID, func() {
+		ctx, cancel := context.WithTimeout(scopedCtx(context.Background(), sel), c.App().Conn().Config().CallTimeout())
 		defer cancel()
 
 		res, err := dao.AccessorFor(c.App().factory, c.GVR())
@@ -166,7 +167,7 @@ func (c *CronJob) showSuspendDialog(cell *tview.TableCell, sel string) {
 			return
 		}
 
-		if err := cronJob.ToggleSuspend(ctx, sel); err != nil {
+		if err := cronJob.ToggleSuspend(ctx, sel.ID); err != nil {
 			c.App().Flash().Errf("Cronjob %s failed for %v", strings.ToLower(title), err)
 			return
 		}

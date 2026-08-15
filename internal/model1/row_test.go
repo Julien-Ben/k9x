@@ -188,6 +188,32 @@ func TestRowDiffDetectsSourceChange(t *testing.T) {
 	}
 }
 
+func TestRowIdentStoreKey(t *testing.T) {
+	uu := map[string]struct {
+		ident model1.RowIdent
+		e     string
+	}{
+		"single-context": {
+			ident: model1.RowIdent{ID: "default/p1"},
+			e:     "default/p1",
+		},
+		"multi-context": {
+			ident: model1.RowIdent{ID: "default/p1", Source: "ctx-a"},
+			e:     "ctx-a@default/p1",
+		},
+	}
+
+	for k := range uu {
+		u := uu[k]
+		t.Run(k, func(t *testing.T) {
+			row := model1.Row{ID: u.ident.ID, Source: u.ident.Source}
+			assert.Equal(t, u.e, u.ident.StoreKey())
+			assert.Equal(t, u.ident.StoreKey(), row.StoreKey())
+			assert.Equal(t, u.ident, row.Ident())
+		})
+	}
+}
+
 func TestRowsDelete(t *testing.T) {
 	uu := map[string]struct {
 		rows model1.Rows

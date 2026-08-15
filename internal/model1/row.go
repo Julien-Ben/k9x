@@ -12,6 +12,12 @@ type Row struct {
 	Source string
 }
 
+// RowIdent identifies a row across contexts.
+type RowIdent struct {
+	ID     string
+	Source string
+}
+
 // StoreKey is the dedup key TableData uses for the rowEvents index. In
 // single-context mode it's just Row.ID (so existing single-cluster behavior
 // is untouched). In multi-context mode it's "<Source>@<ID>", which prevents
@@ -21,10 +27,24 @@ type Row struct {
 // Uses '@' rather than '/' because '/' is part of the FQN syntax — '@'
 // reads as "from" and won't collide with anything in the FQN namespace.
 func (r Row) StoreKey() string {
-	if r.Source == "" {
-		return r.ID
+	return storeKey(r.ID, r.Source)
+}
+
+// Ident returns the row's stable selection identity.
+func (r Row) Ident() RowIdent {
+	return RowIdent{ID: r.ID, Source: r.Source}
+}
+
+// StoreKey returns the dedup key matching Row.StoreKey.
+func (r RowIdent) StoreKey() string {
+	return storeKey(r.ID, r.Source)
+}
+
+func storeKey(id, source string) string {
+	if source == "" {
+		return id
 	}
-	return r.Source + "@" + r.ID
+	return source + "@" + id
 }
 
 // NewRow returns a new row with initialized fields.

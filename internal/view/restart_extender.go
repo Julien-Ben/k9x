@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/ui"
 	"github.com/derailed/k9s/internal/ui/dialog"
@@ -44,16 +43,16 @@ func (r *RestartExtender) bindKeys(aa *ui.KeyActions) {
 }
 
 func (r *RestartExtender) restartCmd(*tcell.EventKey) *tcell.EventKey {
-	paths := r.GetTable().GetSelectedItems()
-	if len(paths) == 0 || paths[0] == "" {
+	refs := r.GetTable().GetSelectedRefs()
+	if len(refs) == 0 || refs[0].ID == "" {
 		return nil
 	}
 
 	r.Stop()
 	defer r.Start()
-	msg := fmt.Sprintf("Restart %s %s?", singularize(r.GVR().R()), paths[0])
-	if len(paths) > 1 {
-		msg = fmt.Sprintf("Restart %d %s?", len(paths), r.GVR().R())
+	msg := fmt.Sprintf("Restart %s %s?", singularize(r.GVR().R()), refs[0].ID)
+	if len(refs) > 1 {
+		msg = fmt.Sprintf("Restart %d %s?", len(refs), r.GVR().R())
 	}
 	d := r.App().Styles.Dialog()
 
@@ -64,15 +63,11 @@ func (r *RestartExtender) restartCmd(*tcell.EventKey) *tcell.EventKey {
 		Ack: func(opts *metav1.PatchOptions) bool {
 			rootCtx, cancel := context.WithTimeout(context.Background(), r.App().Conn().Config().CallTimeout())
 			defer cancel()
-			for _, path := range paths {
-				ctx := rootCtx
-				if scope := extractRowScope(r.GetTable().GetModel(), path); scope != "" {
-					ctx = context.WithValue(ctx, internal.KeyScopeContext, scope)
-				}
-				if err := r.restartRollout(ctx, path, opts); err != nil {
+			for _, ref := range refs {
+				if err := r.restartRollout(scopedCtx(rootCtx, ref), ref.ID, opts); err != nil {
 					r.App().Flash().Err(err)
 				} else {
-					r.App().Flash().Infof("Restart in progress for `%s...", path)
+					r.App().Flash().Infof("Restart in progress for `%s...", ref.ID)
 				}
 			}
 			return true

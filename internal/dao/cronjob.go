@@ -44,9 +44,10 @@ func (c *CronJob) ListImages(_ context.Context, fqn string) ([]string, error) {
 }
 
 // Run a CronJob.
-func (c *CronJob) Run(path string) error {
+func (c *CronJob) Run(ctx context.Context, path string) error {
 	ns, n := client.Namespaced(path)
-	auth, err := c.Client().CanI(ns, client.JobGVR, n, []string{client.GetVerb, client.CreateVerb})
+	conn := c.clientFor(ctx)
+	auth, err := conn.CanI(ns, client.JobGVR, n, []string{client.GetVerb, client.CreateVerb})
 	if err != nil {
 		return err
 	}
@@ -54,7 +55,7 @@ func (c *CronJob) Run(path string) error {
 		return fmt.Errorf("user is not authorized to run jobs")
 	}
 
-	o, err := c.getFactory().Get(c.gvr, path, true, labels.Everything())
+	o, err := getRes(c.getFactory(), ctx, c.gvr, path)
 	if err != nil {
 		return err
 	}
@@ -87,11 +88,11 @@ func (c *CronJob) Run(path string) error {
 		},
 		Spec: cj.Spec.JobTemplate.Spec,
 	}
-	dial, err := c.Client().Dial()
+	dial, err := conn.Dial()
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), c.Client().Config().CallTimeout())
+	ctx, cancel := context.WithTimeout(ctx, conn.Config().CallTimeout())
 	defer cancel()
 	_, err = dial.BatchV1().Jobs(ns).Create(ctx, job, metav1.CreateOptions{})
 
@@ -143,7 +144,8 @@ func (c *CronJob) GetInstance(fqn string) (*batchv1.CronJob, error) {
 // ToggleSuspend toggles suspend/resume on a CronJob.
 func (c *CronJob) ToggleSuspend(ctx context.Context, path string) error {
 	ns, n := client.Namespaced(path)
-	auth, err := c.Client().CanI(ns, c.gvr, n, []string{client.GetVerb, client.UpdateVerb})
+	conn := c.clientFor(ctx)
+	auth, err := conn.CanI(ns, c.gvr, n, []string{client.GetVerb, client.UpdateVerb})
 	if err != nil {
 		return err
 	}
@@ -151,7 +153,7 @@ func (c *CronJob) ToggleSuspend(ctx context.Context, path string) error {
 		return fmt.Errorf("user is not authorized to (un)suspend cronjobs")
 	}
 
-	dial, err := c.Client().Dial()
+	dial, err := conn.Dial()
 	if err != nil {
 		return err
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/dao"
+	"github.com/derailed/k9s/internal/model1"
 	"github.com/derailed/k9s/internal/slogs"
 	"github.com/derailed/k9s/internal/ui"
 	"github.com/derailed/k9s/internal/ui/dialog"
@@ -92,7 +93,7 @@ func (n *Node) showPods(a *App, m ui.Tabular, _ *client.GVR, path string) {
 }
 
 func (n *Node) drainCmd(evt *tcell.EventKey) *tcell.EventKey {
-	sels := n.GetTable().GetSelectedItems()
+	sels := n.GetTable().GetSelectedRefs()
 	if len(sels) == 0 {
 		return evt
 	}
@@ -106,7 +107,7 @@ func (n *Node) drainCmd(evt *tcell.EventKey) *tcell.EventKey {
 	return nil
 }
 
-func drainNode(v ResourceViewer, sels []string, opts dao.DrainOptions) {
+func drainNode(v ResourceViewer, sels []model1.RowIdent, opts dao.DrainOptions) {
 	res, err := dao.AccessorFor(v.App().factory, v.GVR())
 	if err != nil {
 		v.App().Flash().Err(err)
@@ -126,7 +127,7 @@ func drainNode(v ResourceViewer, sels []string, opts dao.DrainOptions) {
 			v.App().Flash().Err(err)
 		}
 		for _, sel := range sels {
-			if err := m.Drain(sel, opts, d.GetWriter()); err != nil {
+			if err := m.Drain(scopedCtx(context.Background(), sel), sel.ID, opts, d.GetWriter()); err != nil {
 				v.App().Flash().Err(err)
 			}
 		}
@@ -136,7 +137,7 @@ func drainNode(v ResourceViewer, sels []string, opts dao.DrainOptions) {
 
 func (n *Node) toggleCordonCmd(cordon bool) func(evt *tcell.EventKey) *tcell.EventKey {
 	return func(evt *tcell.EventKey) *tcell.EventKey {
-		sels := n.GetTable().GetSelectedItems()
+		sels := n.GetTable().GetSelectedRefs()
 		if len(sels) == 0 {
 			return evt
 		}
@@ -148,7 +149,7 @@ func (n *Node) toggleCordonCmd(cordon bool) func(evt *tcell.EventKey) *tcell.Eve
 			title, msg = title+"Uncordon", "Uncordon "
 		}
 		if len(sels) == 1 {
-			msg += sels[0] + "?"
+			msg += sels[0].ID + "?"
 		} else {
 			msg += fmt.Sprintf("(%d) marked %s?", len(sels), n.GVR().R())
 		}
@@ -165,7 +166,7 @@ func (n *Node) toggleCordonCmd(cordon bool) func(evt *tcell.EventKey) *tcell.Eve
 				return
 			}
 			for _, s := range sels {
-				if err := m.ToggleCordon(s, cordon); err != nil {
+				if err := m.ToggleCordon(scopedCtx(context.Background(), s), s.ID, cordon); err != nil {
 					n.App().Flash().Err(err)
 				}
 			}

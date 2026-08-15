@@ -131,6 +131,13 @@ func describeResource(app *App, m ui.Tabular, gvr *client.GVR, path string) {
 	}
 }
 
+func scopedCtx(ctx context.Context, ref model1.RowIdent) context.Context {
+	if ref.Source == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, internal.KeyScopeContext, ref.Source)
+}
+
 func showReplicasets(app *App, path string, labelSel labels.Selector, fieldSel, scopeCtx string) {
 	v := NewReplicaSet(client.RsGVR)
 	v.SetContextFn(func(ctx context.Context) context.Context {

@@ -287,17 +287,6 @@ func (b *Browser) SetContextFn(f ContextFunc) { b.contextFn = f }
 // GetTable returns the underlying table.
 func (b *Browser) GetTable() *Table { return b.Table }
 
-// scopedContextForSelection annotates ctx with internal.KeyScopeContext for
-// the given row path, derived from the table's model. Used to dispatch
-// per-row mutations (delete, …) to the source cluster when the action loop
-// iterates multiple selections.
-func (b *Browser) scopedContextForSelection(ctx context.Context, path string) context.Context {
-	if scope := extractRowScope(b.GetModel(), path); scope != "" {
-		return context.WithValue(ctx, internal.KeyScopeContext, scope)
-	}
-	return ctx
-}
-
 // Aliases returns all available aliases.
 func (b *Browser) Aliases() sets.Set[string] {
 	return aliases(b.meta, b.app.command.AliasesFor(client.NewGVRFromMeta(b.meta)))
@@ -538,7 +527,7 @@ func (b *Browser) refreshCmd(*tcell.EventKey) *tcell.EventKey {
 }
 
 func (b *Browser) deleteCmd(evt *tcell.EventKey) *tcell.EventKey {
-	selections := b.GetSelectedItems()
+	selections := b.GetSelectedRefs()
 	if len(selections) == 0 {
 		return evt
 	}
@@ -546,17 +535,20 @@ func (b *Browser) deleteCmd(evt *tcell.EventKey) *tcell.EventKey {
 	b.Stop()
 	defer b.Start()
 	{
-		msg := fmt.Sprintf("Delete %s %s?", b.GVR().R(), selections[0])
+		msg := fmt.Sprintf("Delete %s %s?", b.GVR().R(), selections[0].ID)
 		// Multi-context safety: when deleting a single row, name the source
 		// cluster in the prompt so the user can't confuse same-named
 		// resources across clusters. (§3.6 Flash-bar usage policy.)
 		if len(selections) == 1 {
-			if ctxName := b.selectedContext(); ctxName != "" {
-				msg = fmt.Sprintf("Delete %s %s in cluster %q?", b.GVR().R(), selections[0], ctxName)
+			if ctxName := selections[0].Source; ctxName != "" {
+				msg = fmt.Sprintf("Delete %s %s in cluster %q?", b.GVR().R(), selections[0].ID, ctxName)
 			}
 		}
 		if len(selections) > 1 {
 			msg = fmt.Sprintf("Delete %d marked %s?", len(selections), b.GVR())
+			if contexts := selectionContexts(selections); len(contexts) > 1 {
+				msg = fmt.Sprintf("Delete %d marked %s across %d contexts (%s)?", len(selections), b.GVR(), len(contexts), strings.Join(contexts, ", "))
+			}
 			if hidden := b.countHiddenMarks(selections); hidden > 0 {
 				msg += fmt.Sprintf(" (%d currently hidden by filter)", hidden)
 			}
@@ -572,18 +564,28 @@ func (b *Browser) deleteCmd(evt *tcell.EventKey) *tcell.EventKey {
 }
 
 // countHiddenMarks returns the number of marked items not visible in the current filtered view.
-func (b *Browser) countHiddenMarks(selections []string) int {
+func (b *Browser) countHiddenMarks(selections []model1.RowIdent) int {
 	if b.CmdBuff().Empty() {
 		return 0
 	}
 	filtered := b.GetTable().GetFilteredData()
 	var hidden int
 	for _, sel := range selections {
-		if _, ok := filtered.FindRow(sel); !ok {
+		if _, ok := filtered.FindRowByStoreKey(sel.StoreKey()); !ok {
 			hidden++
 		}
 	}
 	return hidden
+}
+
+func selectionContexts(selections []model1.RowIdent) []string {
+	contexts := sets.New[string]()
+	for _, sel := range selections {
+		if sel.Source != "" {
+			contexts.Insert(sel.Source)
+		}
+	}
+	return sets.List(contexts)
 }
 
 func (b *Browser) describeCmd(evt *tcell.EventKey) *tcell.EventKey {
@@ -798,14 +800,14 @@ func (b *Browser) namespaceActions(aa *ui.KeyActions) {
 	}
 }
 
-func (b *Browser) simpleDelete(selections []string, msg string) {
+func (b *Browser) simpleDelete(selections []model1.RowIdent, msg string) {
 	d := b.app.Styles.Dialog()
 	dialog.ShowConfirm(&d, b.app.Content.Pages, "Confirm Delete", msg, func() {
 		b.ShowDeleted()
 		if len(selections) > 1 {
 			b.app.Flash().Infof("Delete %d marked %s", len(selections), b.GVR().R())
 		} else {
-			b.app.Flash().Infof("Delete resource %s %s", b.GVR(), selections[0])
+			b.app.Flash().Infof("Delete resource %s %s", b.GVR(), selections[0].ID)
 		}
 		for _, sel := range selections {
 			nuker, ok := b.accessor.(dao.Nuker)
@@ -813,10 +815,10 @@ func (b *Browser) simpleDelete(selections []string, msg string) {
 				b.app.Flash().Errf("Invalid nuker %T", b.accessor)
 				continue
 			}
-			if err := nuker.Delete(b.scopedContextForSelection(context.Background(), sel), sel, nil, dao.DefaultGrace); err != nil {
+			if err := nuker.Delete(scopedCtx(context.Background(), sel), sel.ID, nil, dao.DefaultGrace); err != nil {
 				b.app.Flash().Errf("Delete failed with `%s", err)
 			} else {
-				b.app.factory.DeleteForwarder(sel)
+				b.app.factory.DeleteForwarder(sel.ID)
 			}
 			b.GetTable().DeleteMark(sel)
 		}
@@ -824,23 +826,23 @@ func (b *Browser) simpleDelete(selections []string, msg string) {
 	}, func() {})
 }
 
-func (b *Browser) resourceDelete(selections []string, msg string) {
+func (b *Browser) resourceDelete(selections []model1.RowIdent, msg string) {
 	okFn := func(propagation *metav1.DeletionPropagation, force bool) {
 		b.ShowDeleted()
 		if len(selections) > 1 {
 			b.app.Flash().Infof("Delete %d marked %s", len(selections), b.GVR())
 		} else {
-			b.app.Flash().Infof("Delete resource %s %s", b.GVR(), selections[0])
+			b.app.Flash().Infof("Delete resource %s %s", b.GVR(), selections[0].ID)
 		}
 		for _, sel := range selections {
 			grace := dao.DefaultGrace
 			if force {
 				grace = dao.ForceGrace
 			}
-			if err := b.GetModel().Delete(b.scopedContextForSelection(b.defaultContext(), sel), sel, propagation, grace); err != nil {
+			if err := b.GetModel().Delete(scopedCtx(b.defaultContext(), sel), sel.ID, propagation, grace); err != nil {
 				b.app.Flash().Errf("Delete failed with `%s", err)
 			} else {
-				b.app.factory.DeleteForwarder(sel)
+				b.app.factory.DeleteForwarder(sel.ID)
 			}
 			b.GetTable().DeleteMark(sel)
 		}
