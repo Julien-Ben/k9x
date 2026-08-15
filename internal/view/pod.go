@@ -193,6 +193,9 @@ func (p *Pod) killCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if len(selections) == 0 {
 		return evt
 	}
+	if refuseUnscopedSelection(p.App(), selections) {
+		return nil
+	}
 
 	res, err := dao.AccessorFor(p.App().factory, p.GVR())
 	if err != nil {

@@ -97,6 +97,9 @@ func (n *Node) drainCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if len(sels) == 0 {
 		return evt
 	}
+	if refuseUnscopedSelection(n.App(), sels) {
+		return nil
+	}
 
 	opts := dao.DrainOptions{
 		GracePeriodSeconds: -1,
@@ -140,6 +143,9 @@ func (n *Node) toggleCordonCmd(cordon bool) func(evt *tcell.EventKey) *tcell.Eve
 		sels := n.GetTable().GetSelectedRefs()
 		if len(sels) == 0 {
 			return evt
+		}
+		if refuseUnscopedSelection(n.App(), sels) {
+			return nil
 		}
 
 		title, msg := "Confirm ", ""

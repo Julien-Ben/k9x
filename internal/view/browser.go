@@ -535,6 +535,9 @@ func (b *Browser) deleteCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if len(selections) == 0 {
 		return evt
 	}
+	if refuseUnscopedSelection(b.app, selections) {
+		return nil
+	}
 
 	b.Stop()
 	defer b.Start()

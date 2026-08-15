@@ -94,6 +94,9 @@ func (c *CronJob) triggerCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if len(refs) == 0 {
 		return evt
 	}
+	if refuseUnscopedSelection(c.App(), refs) {
+		return nil
+	}
 	msg := fmt.Sprintf("Trigger CronJob: %s?", refs[0].ID)
 	if len(refs) > 1 {
 		msg = fmt.Sprintf("Trigger %d CronJobs?", len(refs))
@@ -129,6 +132,9 @@ func (c *CronJob) toggleSuspendCmd(evt *tcell.EventKey) *tcell.EventKey {
 
 	if len(refs) == 0 || refs[0].ID == "" {
 		return evt
+	}
+	if refuseUnscopedSelection(c.App(), refs[:1]) {
+		return nil
 	}
 
 	cell := table.GetCell(c.GetTable().GetSelectedRowIndex(), c.GetTable().NameColIndex()+2)

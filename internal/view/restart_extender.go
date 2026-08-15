@@ -47,6 +47,9 @@ func (r *RestartExtender) restartCmd(*tcell.EventKey) *tcell.EventKey {
 	if len(refs) == 0 || refs[0].ID == "" {
 		return nil
 	}
+	if refuseUnscopedSelection(r.App(), refs) {
+		return nil
+	}
 
 	r.Stop()
 	defer r.Start()

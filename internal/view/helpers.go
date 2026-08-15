@@ -138,6 +138,28 @@ func scopedCtx(ctx context.Context, ref model1.RowIdent) context.Context {
 	return context.WithValue(ctx, internal.KeyScopeContext, ref.Source)
 }
 
+const missingSourceContextMsg = "cannot route selection without source context"
+
+func hasUnscopedSelection(multiContext bool, refs []model1.RowIdent) bool {
+	if !multiContext {
+		return false
+	}
+	for _, ref := range refs {
+		if ref.Source == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func refuseUnscopedSelection(app *App, refs []model1.RowIdent) bool {
+	if !hasUnscopedSelection(app.Config.K9s.MultiContextMode, refs) {
+		return false
+	}
+	app.Flash().Errf(missingSourceContextMsg)
+	return true
+}
+
 func showReplicasets(app *App, path string, labelSel labels.Selector, fieldSel, scopeCtx string) {
 	v := NewReplicaSet(client.RsGVR)
 	v.SetContextFn(func(ctx context.Context) context.Context {

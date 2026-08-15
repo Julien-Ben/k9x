@@ -60,6 +60,9 @@ func (s *ScaleExtender) scaleCmd(*tcell.EventKey) *tcell.EventKey {
 	if len(refs) == 0 {
 		return nil
 	}
+	if refuseUnscopedSelection(s.App(), refs) {
+		return nil
+	}
 
 	s.Stop()
 	defer s.Start()
