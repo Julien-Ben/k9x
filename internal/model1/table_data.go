@@ -92,18 +92,11 @@ func (t *TableData) SetRow(idx int, re RowEvent) {
 	t.rowEvents.Set(idx, re)
 }
 
-// FindRow returns the first event whose Row.ID equals id. Backward-compat
-// path for callers that only have an FQN (synthetic-row lookups, legacy
-// selection helpers). In multi-context mode this is ambiguous when multiple
-// rows share an FQN; new code that has a row in hand should call
-// FindRowByStoreKey instead. We first try the direct StoreKey lookup (fast
-// path for single-context and for callers that already passed StoreKey),
-// then fall back to a linear ID scan.
-func (t *TableData) FindRow(id string) (RowEvent, bool) {
-	if re, ok := t.rowEvents.Get(id); ok {
-		return re, true
-	}
-	return t.rowEvents.FindByID(id)
+// FindRow returns the event whose StoreKey matches key. In single-context
+// mode the StoreKey is Row.ID; in multi-context mode callers must pass the
+// scoped StoreKey to avoid ambiguous same-FQN matches across contexts.
+func (t *TableData) FindRow(key string) (RowEvent, bool) {
+	return t.rowEvents.Get(key)
 }
 
 // FindRowByStoreKey returns the event whose StoreKey matches key. Unambiguous
@@ -166,21 +159,8 @@ func (t *TableData) Filter(f FilterOpts) *TableData {
 	// Context selector takes precedence over label selector — `ctx=NAME`
 	// would otherwise be misclassified as a label query by ToLabels.
 	if scope, inverse, ok := internal.IsContextSelector(f.Filter); ok {
-		filtered := t.contextFilter(scope, inverse)
-		slog.Info("[multi-context dbg] context filter applied",
-			"filter", f.Filter,
-			"scope", scope,
-			"inverse", inverse,
-			"events_in", t.rowEvents.Len(),
-			"events_out", filtered.Len(),
-		)
-		td.rowEvents = filtered
+		td.rowEvents = t.contextFilter(scope, inverse)
 		return td
-	}
-	if f.Filter != "" {
-		slog.Info("[multi-context dbg] filter did NOT match ctx selector",
-			"filter", f.Filter,
-		)
 	}
 	if f.Filter == "" || internal.IsLabelSelector(f.Filter) {
 		return td

@@ -157,7 +157,7 @@ func (t *Table) EnvFn() EnvFunc {
 
 func (t *Table) defaultEnv() Env {
 	path := t.GetSelectedItem()
-	row := t.GetSelectedRow(path)
+	row := t.GetSelectedRowRef()
 	env := defaultEnv(t.app.Conn().Config(), path, t.GetModel().Peek().Header(), row)
 	env["FILTER"] = t.CmdBuff().GetText()
 	if env["FILTER"] == "" {
