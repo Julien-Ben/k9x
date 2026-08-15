@@ -46,7 +46,7 @@ func NewCronJob(gvr *client.GVR) ResourceViewer {
 	return &c
 }
 
-func (*CronJob) showJobs(app *App, _ ui.Tabular, gvr *client.GVR, fqn string) {
+func (*CronJob) showJobs(app *App, _ ui.Tabular, gvr *client.GVR, fqn string, sel RowIdent) {
 	slog.Debug("Showing Jobs", slogs.GVR, gvr, slogs.FQN, fqn)
 	o, err := app.factory.Get(gvr, fqn, true, labels.Everything())
 	if err != nil {
@@ -66,15 +66,18 @@ func (*CronJob) showJobs(app *App, _ ui.Tabular, gvr *client.GVR, fqn string) {
 		slog.Error("Unable to set active namespace during show pods", slogs.Error, err)
 	}
 	v := NewJob(client.JobGVR)
-	v.SetContextFn(jobCtx(fqn, string(cj.UID)))
+	v.SetContextFn(jobCtx(fqn, string(cj.UID), sel.Source))
 	if err := app.inject(v, false); err != nil {
 		app.Flash().Err(err)
 	}
 }
 
-func jobCtx(fqn, uid string) ContextFunc {
+func jobCtx(fqn, uid, scopeCtx string) ContextFunc {
 	return func(ctx context.Context) context.Context {
 		ctx = context.WithValue(ctx, internal.KeyPath, fqn)
+		if scopeCtx != "" {
+			ctx = context.WithValue(ctx, internal.KeyScopeContext, scopeCtx)
+		}
 		return context.WithValue(ctx, internal.KeyUID, uid)
 	}
 }

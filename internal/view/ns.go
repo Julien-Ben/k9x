@@ -39,7 +39,7 @@ func (n *Namespace) bindKeys(aa *ui.KeyActions) {
 	})
 }
 
-func (n *Namespace) switchNs(app *App, _ ui.Tabular, _ *client.GVR, path string) {
+func (n *Namespace) switchNs(app *App, _ ui.Tabular, _ *client.GVR, path string, _ RowIdent) {
 	n.useNamespace(path)
 	_, ns := client.Namespaced(path)
 	app.gotoResource(client.PodGVR.String()+" "+ns, "", false, true)

@@ -24,7 +24,7 @@ type ValueExtender struct {
 func NewValueExtender(r ResourceViewer) ResourceViewer {
 	p := ValueExtender{ResourceViewer: r}
 	p.AddBindKeysFn(p.bindKeys)
-	p.GetTable().SetEnterFn(func(*App, ui.Tabular, *client.GVR, string) {
+	p.GetTable().SetEnterFn(func(*App, ui.Tabular, *client.GVR, string, RowIdent) {
 		p.valuesCmd(nil)
 	})
 

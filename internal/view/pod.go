@@ -147,7 +147,7 @@ func (p *Pod) logOptions(prev bool) (*dao.LogOptions, error) {
 	return podLogOptions(p.App(), path, prev, &pod.ObjectMeta, &pod.Spec), nil
 }
 
-func (p *Pod) showContainers(app *App, _ ui.Tabular, _ *client.GVR, _ string) {
+func (p *Pod) showContainers(app *App, _ ui.Tabular, _ *client.GVR, _ string, _ RowIdent) {
 	co := NewContainer(client.CoGVR)
 	co.SetContextFn(p.coContext)
 	if err := app.inject(co, false); err != nil {

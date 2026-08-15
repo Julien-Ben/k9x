@@ -69,7 +69,7 @@ func (d *Deploy) replicaSetsCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if dName == "" {
 		return evt
 	}
-	scope := extractRowScope(d.GetTable().GetModel(), dName)
+	scope := d.GetTable().selectedContext()
 	dp, err := d.getInstanceForScope(dName, scope)
 	if err != nil {
 		d.App().Flash().Err(err)
@@ -79,8 +79,8 @@ func (d *Deploy) replicaSetsCmd(evt *tcell.EventKey) *tcell.EventKey {
 	return nil
 }
 
-func (d *Deploy) showPods(app *App, m ui.Tabular, _ *client.GVR, fqn string) {
-	scope := extractRowScope(m, fqn)
+func (d *Deploy) showPods(app *App, _ ui.Tabular, _ *client.GVR, fqn string, sel RowIdent) {
+	scope := sel.Source
 	dp, err := d.getInstanceForScope(fqn, scope)
 	if err != nil {
 		app.Flash().Err(err)

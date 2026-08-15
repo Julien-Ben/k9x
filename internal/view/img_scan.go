@@ -51,7 +51,7 @@ func (i *ImageScan) bindKeys(aa *ui.KeyActions) {
 	})
 }
 
-func (*ImageScan) viewCVE(app *App, _ ui.Tabular, _ *client.GVR, path string) {
+func (*ImageScan) viewCVE(app *App, _ ui.Tabular, _ *client.GVR, path string, _ RowIdent) {
 	bin := browseLinux
 	if runtime.GOOS == "darwin" {
 		bin = browseOSX

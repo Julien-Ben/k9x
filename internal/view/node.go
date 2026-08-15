@@ -88,8 +88,8 @@ func (n *Node) bindKeys(aa *ui.KeyActions) {
 	})
 }
 
-func (n *Node) showPods(a *App, m ui.Tabular, _ *client.GVR, path string) {
-	showPods(a, n.GetTable().GetSelectedItem(), nil, "spec.nodeName="+path, extractRowScope(m, path))
+func (n *Node) showPods(a *App, _ ui.Tabular, _ *client.GVR, path string, sel RowIdent) {
+	showPods(a, n.GetTable().GetSelectedItem(), nil, "spec.nodeName="+path, sel.Source)
 }
 
 func (n *Node) drainCmd(evt *tcell.EventKey) *tcell.EventKey {

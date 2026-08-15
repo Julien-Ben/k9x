@@ -45,7 +45,7 @@ func (s *ScreenDump) dirContext(ctx context.Context) context.Context {
 	return context.WithValue(ctx, internal.KeyDir, dir)
 }
 
-func (s *ScreenDump) edit(app *App, _ ui.Tabular, _ *client.GVR, path string) {
+func (s *ScreenDump) edit(app *App, _ ui.Tabular, _ *client.GVR, path string, _ RowIdent) {
 	slog.Debug("ScreenDump selection", slogs.FQN, path)
 
 	s.Stop()

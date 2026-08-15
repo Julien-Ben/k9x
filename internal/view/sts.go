@@ -53,8 +53,8 @@ func (s *StatefulSet) logOptions(prev bool) (*dao.LogOptions, error) {
 	return podLogOptions(s.App(), path, prev, &sts.ObjectMeta, &sts.Spec.Template.Spec), nil
 }
 
-func (s *StatefulSet) showPods(app *App, m ui.Tabular, _ *client.GVR, path string) {
-	scope := extractRowScope(m, path)
+func (s *StatefulSet) showPods(app *App, _ ui.Tabular, _ *client.GVR, path string, sel RowIdent) {
+	scope := sel.Source
 	i, err := s.getInstanceForScope(path, scope)
 	if err != nil {
 		app.Flash().Err(err)

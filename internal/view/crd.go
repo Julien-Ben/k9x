@@ -23,7 +23,7 @@ func NewCRD(gvr *client.GVR) ResourceViewer {
 	return &s
 }
 
-func (*CRD) showCRD(app *App, _ ui.Tabular, _ *client.GVR, path string) {
+func (*CRD) showCRD(app *App, _ ui.Tabular, _ *client.GVR, path string, _ RowIdent) {
 	_, crd := client.Namespaced(path)
 	app.gotoResource(crd, "", false, true)
 }

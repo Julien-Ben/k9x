@@ -123,9 +123,9 @@ func defaultEnv(c *client.Config, path string, header model1.Header, row *model1
 	return env
 }
 
-func describeResource(app *App, m ui.Tabular, gvr *client.GVR, path string) {
+func describeResource(app *App, _ ui.Tabular, gvr *client.GVR, path string, sel model1.RowIdent) {
 	v := NewLiveView(app, "Describe", model.NewDescribe(gvr, path))
-	v.SetScopeContext(extractRowScope(m, path))
+	v.SetScopeContext(sel.Source)
 	if err := app.inject(v, false); err != nil {
 		app.Flash().Err(err)
 	}
@@ -185,25 +185,6 @@ func podCtx(_ *App, path, fieldSel, scopeCtx string) ContextFunc {
 		}
 		return ctx
 	}
-}
-
-// extractRowScope returns the source-context name of the row identified by
-// path in the given Tabular model, or "" when the row has no source (single-
-// context mode or unmatched path). Used by enter handlers to forward the
-// parent row's cluster into the child view's drill-down query.
-func extractRowScope(m ui.Tabular, path string) string {
-	if m == nil {
-		return ""
-	}
-	data := m.Peek()
-	if data == nil {
-		return ""
-	}
-	re, ok := data.FindRow(path)
-	if !ok {
-		return ""
-	}
-	return re.Row.Source
 }
 
 func extractApp(ctx context.Context) (*App, error) {

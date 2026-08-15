@@ -77,7 +77,7 @@ func parsePath(path string) (*client.GVR, string, bool) {
 	return client.NewGVR(tt[0]), client.FQN(tt[1], tt[2]), true
 }
 
-func (*Workload) showRes(app *App, _ ui.Tabular, _ *client.GVR, path string) {
+func (*Workload) showRes(app *App, _ ui.Tabular, _ *client.GVR, path string, _ RowIdent) {
 	gvr, fqn, ok := parsePath(path)
 	if !ok {
 		app.Flash().Err(fmt.Errorf("unable to parse path: %q", path))
@@ -165,7 +165,7 @@ func (w *Workload) describeCmd(evt *tcell.EventKey) *tcell.EventKey {
 		return evt
 	}
 
-	describeResource(w.App(), nil, gvr, fqn)
+	describeResource(w.App(), nil, gvr, fqn, RowIdent{ID: fqn, Source: w.GetTable().selectedContext()})
 
 	return nil
 }

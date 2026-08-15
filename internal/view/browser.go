@@ -500,10 +500,14 @@ func (b *Browser) enterCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if b.filterCmd(evt) == nil || path == "" {
 		return nil
 	}
+	sel := model1.RowIdent{ID: path}
+	if row := b.GetSelectedRowRef(); row != nil {
+		sel = row.Ident()
+	}
 
 	// Check for custom jump rules first
 	if rule, ok := b.App().CustomJumps().GetRule(b.GVR()); ok {
-		if err := customJump(b.app, b.GVR(), path, rule); err != nil {
+		if err := customJump(b.app, b.GVR(), path, sel, rule); err != nil {
 			b.app.Flash().Errf("Custom jump failed: %s", err)
 		}
 		return nil
@@ -514,7 +518,7 @@ func (b *Browser) enterCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if b.enterFn != nil {
 		f = b.enterFn
 	}
-	f(b.app, b.GetModel(), b.GVR(), path)
+	f(b.app, b.GetModel(), b.GVR(), path, sel)
 
 	return nil
 }
@@ -593,7 +597,11 @@ func (b *Browser) describeCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if path == "" {
 		return evt
 	}
-	describeResource(b.app, b.GetModel(), b.GVR(), path)
+	sel := model1.RowIdent{ID: path}
+	if row := b.GetSelectedRowRef(); row != nil {
+		sel = row.Ident()
+	}
+	describeResource(b.app, b.GetModel(), b.GVR(), path, sel)
 
 	return nil
 }
