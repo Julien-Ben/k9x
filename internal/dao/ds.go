@@ -247,7 +247,10 @@ func (d *DaemonSet) GetPodSpec(ctx context.Context, path string) (*v1.PodSpec, e
 // SetImages sets container images.
 func (d *DaemonSet) SetImages(ctx context.Context, path string, imageSpecs ImageSpecs) error {
 	ns, n := client.Namespaced(path)
-	conn := d.clientFor(ctx)
+	conn, err := d.clientFor(ctx)
+	if err != nil {
+		return err
+	}
 	auth, err := conn.CanI(ns, d.gvr, n, client.PatchAccess)
 	if err != nil {
 		return err

@@ -45,7 +45,11 @@ func (c *Container) List(ctx context.Context, _ string) ([]runtime.Object, error
 		err error
 	)
 	if withMx, ok := ctx.Value(internal.KeyWithMetrics).(bool); ok && withMx {
-		cmx, _ = client.DialMetrics(c.clientFor(ctx)).FetchContainersMetrics(ctx, fqn)
+		conn, connErr := c.clientFor(ctx)
+		if connErr != nil {
+			return nil, connErr
+		}
+		cmx, _ = client.DialMetrics(conn).FetchContainersMetrics(ctx, fqn)
 	}
 
 	po, err := c.fetchPod(ctx, fqn)

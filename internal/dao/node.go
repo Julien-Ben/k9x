@@ -64,7 +64,11 @@ func (n *Node) ToggleCordon(ctx context.Context, fqn string, cordon bool) error 
 		}
 		return fmt.Errorf("node is already uncordoned")
 	}
-	dial, err := n.clientFor(ctx).Dial()
+	conn, err := n.clientFor(ctx)
+	if err != nil {
+		return err
+	}
+	dial, err := conn.Dial()
 	if err != nil {
 		return err
 	}
@@ -107,7 +111,11 @@ func (n *Node) Drain(ctx context.Context, path string, opts DrainOptions, w io.W
 		}
 	}
 
-	dial, err := n.clientFor(ctx).Dial()
+	conn, err := n.clientFor(ctx)
+	if err != nil {
+		return err
+	}
+	dial, err := conn.Dial()
 	if err != nil {
 		return err
 	}
@@ -270,7 +278,11 @@ func FetchNode(ctx context.Context, f Factory, path string) (*v1.Node, error) {
 	_, n := client.Namespaced(path)
 	conn := f.Client()
 	if cf, ok := f.(ContextualFactory); ok {
-		conn = cf.ClientFor(ctx)
+		var err error
+		conn, err = cf.ClientFor(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 	auth, err := conn.CanI(client.ClusterScope, client.NodeGVR, n, client.GetAccess)
 	if err != nil {

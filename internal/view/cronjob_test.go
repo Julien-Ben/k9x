@@ -82,4 +82,4 @@ func (*scopedGetFactory) ListWithContext(context.Context, *client.GVR, string, b
 	return nil, nil
 }
 
-func (*scopedGetFactory) ClientFor(context.Context) client.Connection { return nil }
+func (*scopedGetFactory) ClientFor(context.Context) (client.Connection, error) { return nil, nil }

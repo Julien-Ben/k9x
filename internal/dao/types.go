@@ -65,10 +65,11 @@ type ContextualFactory interface {
 	GetWithContext(ctx context.Context, gvr *client.GVR, path string, wait bool, sel labels.Selector) (runtime.Object, error)
 
 	// ClientFor returns the client.Connection for the child identified by
-	// internal.KeyScopeContext on the supplied context, falling back to the
-	// primary's connection when the key is absent or empty. DAO mutations
-	// dispatch through this so writes hit the row's source cluster.
-	ClientFor(ctx context.Context) client.Connection
+	// internal.KeyScopeContext on the supplied context. An absent scope uses
+	// the primary; unknown, disabled, or not-yet-started scopes return an error.
+	// DAO mutations dispatch through this so writes cannot fall through to the
+	// wrong cluster.
+	ClientFor(ctx context.Context) (client.Connection, error)
 }
 
 // RuntimeContextState exposes MultiFactory's runtime context manager state to

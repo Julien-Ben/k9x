@@ -161,9 +161,9 @@ func (f *scopedRoutingFactory) Client() client.Connection {
 	return makeConn()
 }
 
-func (f *scopedRoutingFactory) ClientFor(ctx context.Context) client.Connection {
+func (f *scopedRoutingFactory) ClientFor(ctx context.Context) (client.Connection, error) {
 	f.clientForScopes = append(f.clientForScopes, routingScope(ctx))
-	return f.conn
+	return f.conn, nil
 }
 
 func (f *scopedRoutingFactory) Get(*client.GVR, string, bool, labels.Selector) (runtime.Object, error) {

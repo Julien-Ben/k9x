@@ -46,7 +46,10 @@ func (c *CronJob) ListImages(_ context.Context, fqn string) ([]string, error) {
 // Run a CronJob.
 func (c *CronJob) Run(ctx context.Context, path string) error {
 	ns, n := client.Namespaced(path)
-	conn := c.clientFor(ctx)
+	conn, err := c.clientFor(ctx)
+	if err != nil {
+		return err
+	}
 	auth, err := conn.CanI(ns, client.JobGVR, n, []string{client.GetVerb, client.CreateVerb})
 	if err != nil {
 		return err
@@ -144,7 +147,10 @@ func (c *CronJob) GetInstance(fqn string) (*batchv1.CronJob, error) {
 // ToggleSuspend toggles suspend/resume on a CronJob.
 func (c *CronJob) ToggleSuspend(ctx context.Context, path string) error {
 	ns, n := client.Namespaced(path)
-	conn := c.clientFor(ctx)
+	conn, err := c.clientFor(ctx)
+	if err != nil {
+		return err
+	}
 	auth, err := conn.CanI(ns, c.gvr, n, []string{client.GetVerb, client.UpdateVerb})
 	if err != nil {
 		return err

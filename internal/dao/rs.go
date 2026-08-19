@@ -104,7 +104,11 @@ func (r *ReplicaSet) Rollback(ctx context.Context, fqn string) error {
 	if err != nil {
 		return err
 	}
-	dial, err := r.clientFor(ctx).Dial()
+	conn, err := r.clientFor(ctx)
+	if err != nil {
+		return err
+	}
+	dial, err := conn.Dial()
 	if err != nil {
 		return err
 	}

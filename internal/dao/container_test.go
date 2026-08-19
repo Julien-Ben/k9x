@@ -145,7 +145,9 @@ func (f *contextualPodFactory) WaitForCacheSync()            {}
 func (f *contextualPodFactory) Forwarders() watch.Forwarders { return nil }
 func (f *contextualPodFactory) DeleteForwarder(string)       {}
 
-func (f *contextualPodFactory) ClientFor(context.Context) client.Connection { return makeConn() }
+func (f *contextualPodFactory) ClientFor(context.Context) (client.Connection, error) {
+	return makeConn(), nil
+}
 
 func (f *contextualPodFactory) GetWithContext(ctx context.Context, _ *client.GVR, _ string, _ bool, _ labels.Selector) (runtime.Object, error) {
 	f.getWithContextCalls++

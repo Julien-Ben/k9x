@@ -96,7 +96,11 @@ func (g *Generic) Describe(path string) (string, error) {
 // to route per-row in multi-context mode (the ctx carries
 // internal.KeyScopeContext).
 func (g *Generic) DescribeWithContext(ctx context.Context, path string) (string, error) {
-	return Describe(g.clientFor(ctx), g.gvr, path)
+	conn, err := g.clientFor(ctx)
+	if err != nil {
+		return "", err
+	}
+	return Describe(conn, g.gvr, path)
 }
 
 // ToYAML returns a resource yaml.
@@ -122,7 +126,10 @@ func (g *Generic) ToYAMLWithContext(ctx context.Context, path string, showManage
 // Delete deletes a resource.
 func (g *Generic) Delete(ctx context.Context, path string, propagation *metav1.DeletionPropagation, grace Grace) error {
 	ns, n := client.Namespaced(path)
-	conn := g.clientFor(ctx)
+	conn, err := g.clientFor(ctx)
+	if err != nil {
+		return err
+	}
 	auth, err := conn.CanI(ns, g.gvr, n, []string{client.DeleteVerb})
 	if err != nil {
 		return err
@@ -166,7 +173,11 @@ func (g *Generic) dynClient() (dynamic.NamespaceableResourceInterface, error) {
 // when ctx carries internal.KeyScopeContext (multi-context mode). Otherwise
 // falls back to the primary's connection.
 func (g *Generic) dynClientFor(ctx context.Context) (dynamic.NamespaceableResourceInterface, error) {
-	dial, err := g.clientFor(ctx).DynDial()
+	conn, err := g.clientFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	dial, err := conn.DynDial()
 	if err != nil {
 		return nil, err
 	}

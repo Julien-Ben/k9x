@@ -50,14 +50,14 @@ func (n *NonResource) getFactory() Factory {
 
 // clientFor returns the per-row client.Connection when the underlying factory
 // implements ContextualFactory (multi-context mode), or the primary's Client()
-// otherwise. DAO mutations must use this so writes hit the row's source
-// cluster instead of always landing on the primary.
-func (n *NonResource) clientFor(ctx context.Context) client.Connection {
+// otherwise. Disabled and unknown scopes are rejected by the contextual
+// factory so mutations cannot silently fall through to the primary.
+func (n *NonResource) clientFor(ctx context.Context) (client.Connection, error) {
 	f := n.getFactory()
 	if cf, ok := f.(ContextualFactory); ok {
 		return cf.ClientFor(ctx)
 	}
-	return f.Client()
+	return f.Client(), nil
 }
 
 // getRes fetches the runtime.Object for path, routing through the factory's

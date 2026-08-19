@@ -152,7 +152,10 @@ func (p *Pod) List(ctx context.Context, ns string) ([]runtime.Object, error) {
 // multi-context mode; falls back to the primary client otherwise.
 func (p *Pod) Logs(ctx context.Context, path string, opts *v1.PodLogOptions) (*restclient.Request, error) {
 	ns, n := client.Namespaced(path)
-	conn := p.clientFor(ctx)
+	conn, err := p.clientFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	auth, err := conn.CanI(ns, client.NewGVR(client.PodGVR.String()+":log"), n, client.GetAccess)
 	if err != nil {
 		return nil, err
@@ -562,7 +565,10 @@ func (p *Pod) GetPodSpec(ctx context.Context, path string) (*v1.PodSpec, error) 
 // SetImages sets container images.
 func (p *Pod) SetImages(ctx context.Context, path string, imageSpecs ImageSpecs) error {
 	ns, n := client.Namespaced(path)
-	conn := p.clientFor(ctx)
+	conn, err := p.clientFor(ctx)
+	if err != nil {
+		return err
+	}
 	auth, err := conn.CanI(ns, p.gvr, n, client.PatchAccess)
 	if err != nil {
 		return err

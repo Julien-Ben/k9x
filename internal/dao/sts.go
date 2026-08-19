@@ -229,7 +229,10 @@ func (s *StatefulSet) GetPodSpec(ctx context.Context, path string) (*v1.PodSpec,
 // SetImages sets container images.
 func (s *StatefulSet) SetImages(ctx context.Context, path string, imageSpecs ImageSpecs) error {
 	ns, n := client.Namespaced(path)
-	conn := s.clientFor(ctx)
+	conn, err := s.clientFor(ctx)
+	if err != nil {
+		return err
+	}
 	auth, err := conn.CanI(ns, client.StsGVR, n, client.PatchAccess)
 	if err != nil {
 		return err

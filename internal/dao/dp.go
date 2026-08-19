@@ -206,7 +206,10 @@ func (d *Deployment) GetPodSpec(ctx context.Context, path string) (*v1.PodSpec, 
 // SetImages sets container images.
 func (d *Deployment) SetImages(ctx context.Context, path string, imageSpecs ImageSpecs) error {
 	ns, n := client.Namespaced(path)
-	conn := d.clientFor(ctx)
+	conn, err := d.clientFor(ctx)
+	if err != nil {
+		return err
+	}
 	auth, err := conn.CanI(ns, d.gvr, n, client.PatchAccess)
 	if err != nil {
 		return err
@@ -369,7 +372,11 @@ func scaleRes(ctx context.Context, f Factory, gvr *client.GVR, path string, repl
 	ns, n := client.Namespaced(path)
 	conn := f.Client()
 	if cf, ok := f.(ContextualFactory); ok {
-		conn = cf.ClientFor(ctx)
+		var err error
+		conn, err = cf.ClientFor(ctx)
+		if err != nil {
+			return err
+		}
 	}
 	auth, err := conn.CanI(ns, client.NewGVR(gvr.String()+":scale"), n, []string{client.GetVerb, client.UpdateVerb})
 	if err != nil {
@@ -420,7 +427,10 @@ func restartRes[T runtime.Object](ctx context.Context, f Factory, gvr *client.GV
 	ns, n := client.Namespaced(path)
 	conn := f.Client()
 	if cf, ok := f.(ContextualFactory); ok {
-		conn = cf.ClientFor(ctx)
+		conn, err = cf.ClientFor(ctx)
+		if err != nil {
+			return err
+		}
 	}
 	auth, err := conn.CanI(ns, gvr, n, client.PatchAccess)
 	if err != nil {

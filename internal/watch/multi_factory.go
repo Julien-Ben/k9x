@@ -590,19 +590,23 @@ func (m *MultiFactory) Contexts() []string {
 }
 
 // ClientFor returns the client.Connection for the child identified by
-// internal.KeyScopeContext on ctx, falling back to the primary's connection
-// when the key is absent / empty / unknown. DAOs use this to dispatch
-// mutations (delete, restart, scale, …) to the row's source cluster instead
-// of always hitting the primary.
-func (m *MultiFactory) ClientFor(ctx context.Context) client.Connection {
+// internal.KeyScopeContext on ctx. An absent scope uses the primary; an
+// unknown, disabled, or not-yet-started scope is rejected so a stale row can
+// never fall through to another cluster.
+func (m *MultiFactory) ClientFor(ctx context.Context) (client.Connection, error) {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 	if scope, ok := ctx.Value(internal.KeyScopeContext).(string); ok && scope != "" {
-		if child, exists := m.children[scope]; exists {
-			return child.Client()
+		child, exists := m.children[scope]
+		if !exists {
+			return nil, fmt.Errorf("%w: %s", ErrUnknownContext, scope)
 		}
+		if m.disabled[scope] || m.actualDisabled[scope] {
+			return nil, fmt.Errorf("%w: %s", ErrContextDisabled, scope)
+		}
+		return child.Client(), nil
 	}
-	return m.children[m.primary].Client()
+	return m.children[m.primary].Client(), nil
 }
 
 // List fans out across all children in parallel, deep-copies each returned

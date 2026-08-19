@@ -859,20 +859,32 @@ func TestMultiFactoryClientFor_RoutesByScope(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("no_scope_uses_primary", func(t *testing.T) {
-		c := mf.ClientFor(t.Context())
+		c, err := mf.ClientFor(t.Context())
+		require.NoError(t, err)
 		assert.Same(t, connA, c)
 	})
 
 	t.Run("scope_ctxB_routes_to_b", func(t *testing.T) {
 		ctx := context.WithValue(t.Context(), internal.KeyScopeContext, "ctxB")
-		c := mf.ClientFor(ctx)
+		c, err := mf.ClientFor(ctx)
+		require.NoError(t, err)
 		assert.Same(t, connB, c)
 	})
 
-	t.Run("unknown_scope_falls_back_to_primary", func(t *testing.T) {
+	t.Run("unknown_scope_is_rejected", func(t *testing.T) {
 		ctx := context.WithValue(t.Context(), internal.KeyScopeContext, "ctxZ")
-		c := mf.ClientFor(ctx)
-		assert.Same(t, connA, c)
+		c, err := mf.ClientFor(ctx)
+		require.ErrorIs(t, err, ErrUnknownContext)
+		assert.Nil(t, c)
+	})
+
+	t.Run("disabled_scope_is_rejected", func(t *testing.T) {
+		_, err := mf.ToggleContext("ctxB")
+		require.NoError(t, err)
+		ctx := context.WithValue(t.Context(), internal.KeyScopeContext, "ctxB")
+		c, err := mf.ClientFor(ctx)
+		require.ErrorIs(t, err, ErrContextDisabled)
+		assert.Nil(t, c)
 	})
 }
 
