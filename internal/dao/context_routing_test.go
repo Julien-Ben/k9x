@@ -16,6 +16,7 @@ import (
 	"github.com/derailed/k9s/internal/watch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -105,6 +106,18 @@ func TestPodSanitizeRoutesListAndDeleteViaScopeContext(t *testing.T) {
 	assert.Equal(t, []string{"ctx-b"}, f.listWithContextScopes)
 	assert.Equal(t, []string{"ctx-b", "ctx-b"}, f.clientForScopes)
 	assert.Zero(t, f.plainListCalls)
+}
+
+func TestReplicaSetRollbackRoutesViaScopeContext(t *testing.T) {
+	f := newScopedRoutingFactory(t, replicaSetObject(t))
+	var rs dao.ReplicaSet
+	rs.Init(f, client.RsGVR)
+
+	err := rs.Rollback(scopedRoutingCtx("ctx-b"), "default/rs-a")
+	require.ErrorIs(t, err, errScopedDial)
+	assert.Equal(t, []string{"ctx-b"}, f.getWithContextScopes)
+	assert.Equal(t, []string{"ctx-b"}, f.clientForScopes)
+	assert.Zero(t, f.plainGetCalls)
 }
 
 type scopedRoutingConn struct {
@@ -263,6 +276,27 @@ func routedPodObject(t *testing.T, controlled bool) runtime.Object {
 		}}
 	}
 	return asUnstructured(t, pod)
+}
+
+func replicaSetObject(t *testing.T) runtime.Object {
+	t.Helper()
+	controller := true
+	return asUnstructured(t, &appsv1.ReplicaSet{
+		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "ReplicaSet"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "rs-a",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"deployment.kubernetes.io/revision": "1",
+			},
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       "deploy-a",
+				Controller: &controller,
+			}},
+		},
+	})
 }
 
 func asUnstructured(t *testing.T, obj runtime.Object) runtime.Object {

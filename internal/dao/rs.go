@@ -90,8 +90,8 @@ func controllerInfo(rs *appsv1.ReplicaSet) (name, kind, group string, err error)
 }
 
 // Rollback reverses the last deployment.
-func (r *ReplicaSet) Rollback(fqn string) error {
-	rs, err := r.Load(r.Factory, fqn)
+func (r *ReplicaSet) Rollback(ctx context.Context, fqn string) error {
+	rs, err := r.LoadWithContext(ctx, r.Factory, fqn)
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func (r *ReplicaSet) Rollback(fqn string) error {
 	if err != nil {
 		return err
 	}
-	dial, err := r.Client().Dial()
+	dial, err := r.clientFor(ctx).Dial()
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func (r *ReplicaSet) Rollback(fqn string) error {
 
 	var ddp Deployment
 	ddp.Init(r.Factory, client.DpGVR)
-	dp, err := ddp.GetInstance(client.FQN(rs.Namespace, name))
+	dp, err := ddp.GetInstanceWithContext(ctx, client.FQN(rs.Namespace, name))
 	if err != nil {
 		return err
 	}
