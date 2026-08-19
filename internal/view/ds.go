@@ -61,7 +61,7 @@ func (d *DaemonSet) logOptions(prev bool) (*dao.LogOptions, error) {
 	if path == "" {
 		return nil, errors.New("you must provide a selection")
 	}
-	ds, err := d.getInstance(path)
+	ds, err := d.getInstanceForScope(path, d.GetTable().selectedContext())
 	if err != nil {
 		return nil, err
 	}
@@ -70,8 +70,12 @@ func (d *DaemonSet) logOptions(prev bool) (*dao.LogOptions, error) {
 }
 
 func (d *DaemonSet) getInstance(fqn string) (*appsv1.DaemonSet, error) {
+	return d.getInstanceForScope(fqn, "")
+}
+
+func (d *DaemonSet) getInstanceForScope(fqn, scope string) (*appsv1.DaemonSet, error) {
 	var ds dao.DaemonSet
 	ds.Init(d.App().factory, client.DsGVR)
 
-	return ds.GetInstance(fqn)
+	return ds.GetInstanceWithContext(contextForScope(scope), fqn)
 }

@@ -45,7 +45,7 @@ func (s *StatefulSet) logOptions(prev bool) (*dao.LogOptions, error) {
 	if path == "" {
 		return nil, errors.New("you must provide a selection")
 	}
-	sts, err := s.getInstance(path)
+	sts, err := s.getInstanceForScope(path, s.GetTable().selectedContext())
 	if err != nil {
 		return nil, err
 	}

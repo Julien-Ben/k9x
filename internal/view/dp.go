@@ -56,7 +56,7 @@ func (d *Deploy) logOptions(prev bool) (*dao.LogOptions, error) {
 	if path == "" {
 		return nil, errors.New("you must provide a selection")
 	}
-	dp, err := d.getInstance(path)
+	dp, err := d.getInstanceForScope(path, d.GetTable().selectedContext())
 	if err != nil {
 		return nil, err
 	}

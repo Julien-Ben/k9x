@@ -32,8 +32,8 @@ type Job struct {
 }
 
 // ListImages lists container images.
-func (j *Job) ListImages(_ context.Context, fqn string) ([]string, error) {
-	job, err := j.GetInstance(fqn)
+func (j *Job) ListImages(ctx context.Context, fqn string) ([]string, error) {
+	job, err := j.GetInstanceWithContext(ctx, fqn)
 	if err != nil {
 		return nil, err
 	}
@@ -74,15 +74,9 @@ func (j *Job) List(ctx context.Context, ns string) ([]runtime.Object, error) {
 
 // TailLogs tail logs for all pods represented by this Job.
 func (j *Job) TailLogs(ctx context.Context, opts *LogOptions) ([]LogChan, error) {
-	o, err := j.getFactory().Get(j.gvr, opts.Path, true, labels.Everything())
+	job, err := j.GetInstanceWithContext(ctx, opts.Path)
 	if err != nil {
 		return nil, err
-	}
-
-	var job batchv1.Job
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(o.(*unstructured.Unstructured).Object, &job)
-	if err != nil {
-		return nil, errors.New("expecting a job resource")
 	}
 
 	if job.Spec.Selector == nil || len(job.Spec.Selector.MatchLabels) == 0 {

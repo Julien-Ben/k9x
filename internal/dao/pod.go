@@ -96,8 +96,8 @@ func (p *Pod) Get(ctx context.Context, path string) (runtime.Object, error) {
 }
 
 // ListImages lists container images.
-func (p *Pod) ListImages(_ context.Context, path string) ([]string, error) {
-	pod, err := p.GetInstance(path)
+func (p *Pod) ListImages(ctx context.Context, path string) ([]string, error) {
+	pod, err := p.GetInstanceWithContext(ctx, path)
 	if err != nil {
 		return nil, err
 	}

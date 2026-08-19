@@ -39,8 +39,8 @@ type DaemonSet struct {
 }
 
 // ListImages lists container images.
-func (d *DaemonSet) ListImages(_ context.Context, fqn string) ([]string, error) {
-	ds, err := d.GetInstance(fqn)
+func (d *DaemonSet) ListImages(ctx context.Context, fqn string) ([]string, error) {
+	ds, err := d.GetInstanceWithContext(ctx, fqn)
 	if err != nil {
 		return nil, err
 	}

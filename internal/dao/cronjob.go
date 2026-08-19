@@ -34,8 +34,8 @@ type CronJob struct {
 }
 
 // ListImages lists container images.
-func (c *CronJob) ListImages(_ context.Context, fqn string) ([]string, error) {
-	cj, err := c.GetInstance(fqn)
+func (c *CronJob) ListImages(ctx context.Context, fqn string) ([]string, error) {
+	cj, err := c.GetInstanceWithContext(ctx, fqn)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +130,12 @@ func (c *CronJob) ScanSA(ctx context.Context, fqn string, wait bool) (Refs, erro
 
 // GetInstance fetch a matching cronjob.
 func (c *CronJob) GetInstance(fqn string) (*batchv1.CronJob, error) {
-	o, err := c.getFactory().Get(c.gvr, fqn, true, labels.Everything())
+	return c.GetInstanceWithContext(context.Background(), fqn)
+}
+
+// GetInstanceWithContext fetches a cronjob from the context selected on ctx.
+func (c *CronJob) GetInstanceWithContext(ctx context.Context, fqn string) (*batchv1.CronJob, error) {
+	o, err := getRes(c.getFactory(), ctx, c.gvr, fqn)
 	if err != nil {
 		return nil, err
 	}

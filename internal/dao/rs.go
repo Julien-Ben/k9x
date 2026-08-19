@@ -30,8 +30,8 @@ type ReplicaSet struct {
 }
 
 // ListImages lists container images.
-func (r *ReplicaSet) ListImages(_ context.Context, fqn string) ([]string, error) {
-	rs, err := r.Load(r.Factory, fqn)
+func (r *ReplicaSet) ListImages(ctx context.Context, fqn string) ([]string, error) {
+	rs, err := r.LoadWithContext(ctx, r.Factory, fqn)
 	if err != nil {
 		return nil, err
 	}

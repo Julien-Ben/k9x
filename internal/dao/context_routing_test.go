@@ -90,6 +90,40 @@ func TestPodImageReadsRouteViaScopeContext(t *testing.T) {
 	assert.Zero(t, f.plainGetCalls)
 }
 
+func TestPodListImagesRoutesViaScopeContext(t *testing.T) {
+	f := newScopedRoutingFactory(t, routedPodObject(t, false))
+	var pod dao.Pod
+	pod.Init(f, client.PodGVR)
+
+	images, err := pod.ListImages(scopedRoutingCtx("ctx-b"), "default/pod-a")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"busybox"}, images)
+	assert.Equal(t, []string{"ctx-b"}, f.getWithContextScopes)
+	assert.Zero(t, f.plainGetCalls)
+}
+
+func TestJobTailLogsRoutesSelectorReadsViaScopeContext(t *testing.T) {
+	f := newScopedRoutingFactory(t, asUnstructured(t, &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: "job-a", Namespace: "default"},
+		Spec: batchv1.JobSpec{Selector: &metav1.LabelSelector{
+			MatchLabels: map[string]string{"job": "job-a"},
+		}},
+	}))
+	var job dao.Job
+	job.Init(f, client.JobGVR)
+	ctx := context.WithValue(scopedRoutingCtx("ctx-b"), internal.KeyFactory, dao.Factory(f))
+
+	_, err := job.TailLogs(ctx, &dao.LogOptions{Path: "default/job-a"})
+	require.NoError(t, err)
+	assert.NotEmpty(t, f.getWithContextScopes)
+	assert.NotEmpty(t, f.listWithContextScopes)
+	for _, scope := range append(f.getWithContextScopes, f.listWithContextScopes...) {
+		assert.Equal(t, "ctx-b", scope)
+	}
+	assert.Zero(t, f.plainGetCalls)
+	assert.Zero(t, f.plainListCalls)
+}
+
 func TestPodSanitizeRoutesListAndDeleteViaScopeContext(t *testing.T) {
 	obj := routedPodObject(t, false)
 	obj.(*unstructured.Unstructured).Object["status"] = map[string]any{

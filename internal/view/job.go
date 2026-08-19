@@ -56,7 +56,7 @@ func (j *Job) logOptions(prev bool) (*dao.LogOptions, error) {
 	if path == "" {
 		return nil, errors.New("you must provide a selection")
 	}
-	job, err := j.getInstance(path)
+	job, err := j.getInstanceForScope(path, j.GetTable().selectedContext())
 	if err != nil {
 		return nil, err
 	}
@@ -65,8 +65,12 @@ func (j *Job) logOptions(prev bool) (*dao.LogOptions, error) {
 }
 
 func (j *Job) getInstance(fqn string) (*batchv1.Job, error) {
+	return j.getInstanceForScope(fqn, "")
+}
+
+func (j *Job) getInstanceForScope(fqn, scope string) (*batchv1.Job, error) {
 	var job dao.Job
 	job.Init(j.App().factory, client.JobGVR)
 
-	return job.GetInstance(fqn)
+	return job.GetInstanceWithContext(contextForScope(scope), fqn)
 }

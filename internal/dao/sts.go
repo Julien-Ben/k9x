@@ -39,8 +39,8 @@ type StatefulSet struct {
 }
 
 // ListImages lists container images.
-func (s *StatefulSet) ListImages(_ context.Context, fqn string) ([]string, error) {
-	sts, err := s.GetInstance(s.Factory, fqn)
+func (s *StatefulSet) ListImages(ctx context.Context, fqn string) ([]string, error) {
+	sts, err := s.GetInstanceWithContext(ctx, s.Factory, fqn)
 	if err != nil {
 		return nil, err
 	}

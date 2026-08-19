@@ -28,7 +28,7 @@ type Service struct {
 
 // TailLogs tail logs for all pods represented by this Service.
 func (s *Service) TailLogs(ctx context.Context, opts *LogOptions) ([]LogChan, error) {
-	svc, err := s.GetInstance(opts.Path)
+	svc, err := s.GetInstanceWithContext(ctx, opts.Path)
 	if err != nil {
 		return nil, err
 	}

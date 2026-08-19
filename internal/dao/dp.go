@@ -41,8 +41,8 @@ type Deployment struct {
 }
 
 // ListImages lists container images.
-func (d *Deployment) ListImages(_ context.Context, fqn string) ([]string, error) {
-	dp, err := d.GetInstance(fqn)
+func (d *Deployment) ListImages(ctx context.Context, fqn string) ([]string, error) {
+	dp, err := d.GetInstanceWithContext(ctx, fqn)
 	if err != nil {
 		return nil, err
 	}
