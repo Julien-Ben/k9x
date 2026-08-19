@@ -10,6 +10,7 @@ import (
 	"github.com/derailed/k9s/internal/ui"
 	"github.com/derailed/tcell/v2"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // Secret presents a secret viewer.
@@ -44,7 +45,16 @@ func (s *Secret) decodeCmd(evt *tcell.EventKey) *tcell.EventKey {
 		return evt
 	}
 
-	o, err := s.App().factory.Get(s.GVR(), path, true, labels.Everything())
+	ctx := contextForScope(s.GetTable().selectedContext())
+	var (
+		o   runtime.Object
+		err error
+	)
+	if factory, ok := s.App().factory.(dao.ContextualFactory); ok {
+		o, err = factory.GetWithContext(ctx, s.GVR(), path, true, labels.Everything())
+	} else {
+		o, err = s.App().factory.Get(s.GVR(), path, true, labels.Everything())
+	}
 	if err != nil {
 		s.App().Flash().Err(err)
 		return nil

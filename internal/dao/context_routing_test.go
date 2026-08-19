@@ -167,6 +167,22 @@ func TestWorkloadDeleteRoutesViaScopeContext(t *testing.T) {
 	assert.Equal(t, 1, f.conn.dialCalls)
 }
 
+func TestSecretDecodedYAMLRoutesViaScopeContext(t *testing.T) {
+	f := newScopedRoutingFactory(t, asUnstructured(t, &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "secret-a", Namespace: "default"},
+		Data:       map[string][]byte{"token": []byte("from-ctx-b")},
+	}))
+	var secret dao.Secret
+	secret.Init(f, client.SecGVR)
+	secret.SetDecodeData(true)
+
+	raw, err := secret.ToYAMLWithContext(scopedRoutingCtx("ctx-b"), "default/secret-a", false)
+	require.NoError(t, err)
+	assert.Contains(t, raw, "from-ctx-b")
+	assert.Equal(t, []string{"ctx-b"}, f.getWithContextScopes)
+	assert.Zero(t, f.plainGetCalls)
+}
+
 type scopedRoutingConn struct {
 	conn
 

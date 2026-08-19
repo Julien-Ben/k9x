@@ -27,12 +27,18 @@ type Secret struct {
 
 // Describe describes a secret that can be encoded or decoded.
 func (s *Secret) Describe(path string) (string, error) {
-	encodedDescription, err := s.Generic.Describe(path)
+	return s.DescribeWithContext(context.Background(), path)
+}
+
+// DescribeWithContext describes and optionally decodes a Secret from the
+// context selected on ctx.
+func (s *Secret) DescribeWithContext(ctx context.Context, path string) (string, error) {
+	encodedDescription, err := s.Generic.DescribeWithContext(ctx, path)
 	if err != nil {
 		return "", err
 	}
 	if s.decodeData {
-		return s.Decode(encodedDescription, path)
+		return s.DecodeWithContext(ctx, encodedDescription, path)
 	}
 
 	return encodedDescription, nil
@@ -40,15 +46,25 @@ func (s *Secret) Describe(path string) (string, error) {
 
 // ToYAML returns a resource yaml.
 func (s *Secret) ToYAML(path string, showManaged bool) (string, error) {
+	return s.ToYAMLWithContext(context.Background(), path, showManaged)
+}
+
+// ToYAMLWithContext renders and optionally decodes a Secret from the context
+// selected on ctx.
+func (s *Secret) ToYAMLWithContext(ctx context.Context, path string, showManaged bool) (string, error) {
 	if s.decodeData {
-		return s.decodeYAML(path, showManaged)
+		return s.decodeYAMLWithContext(ctx, path, showManaged)
 	}
 
-	return s.Generic.ToYAML(path, showManaged)
+	return s.Generic.ToYAMLWithContext(ctx, path, showManaged)
 }
 
 func (s *Secret) decodeYAML(path string, showManaged bool) (string, error) {
-	o, err := s.Get(context.Background(), path)
+	return s.decodeYAMLWithContext(context.Background(), path, showManaged)
+}
+
+func (s *Secret) decodeYAMLWithContext(ctx context.Context, path string, showManaged bool) (string, error) {
+	o, err := getRes(s.getFactory(), ctx, s.gvr, path)
 	if err != nil {
 		return "", err
 	}
@@ -89,6 +105,12 @@ func (s *Secret) SetDecodeData(b bool) {
 // Decode removes the encoded part from the secret's description and appends the
 // secret's decoded data.
 func (s *Secret) Decode(encodedDescription, path string) (string, error) {
+	return s.DecodeWithContext(context.Background(), encodedDescription, path)
+}
+
+// DecodeWithContext replaces the encoded data section using the Secret from
+// the context selected on ctx.
+func (s *Secret) DecodeWithContext(ctx context.Context, encodedDescription, path string) (string, error) {
 	dataEndIndex := strings.Index(encodedDescription, "====")
 	if dataEndIndex == -1 {
 		return "", fmt.Errorf("unable to find data section in secret description")
@@ -103,7 +125,7 @@ func (s *Secret) Decode(encodedDescription, path string) (string, error) {
 	// More details about the reasoning of index: https://github.com/kubernetes/kubectl/blob/v0.29.0/pkg/describe/describe.go#L2542
 	body := encodedDescription[0:dataEndIndex]
 
-	o, err := s.Get(context.Background(), path)
+	o, err := getRes(s.getFactory(), ctx, s.gvr, path)
 	if err != nil {
 		return "", err
 	}
