@@ -87,6 +87,42 @@ func TestExtractApp(t *testing.T) {
 	}
 }
 
+func TestHasUnscopedSelection(t *testing.T) {
+	uu := map[string]struct {
+		multi bool
+		refs  []model1.RowIdent
+		e     bool
+	}{
+		"single-context-allows-empty-source": {
+			refs: []model1.RowIdent{{ID: "default/p1"}},
+		},
+		"multi-context-allows-scoped": {
+			multi: true,
+			refs:  []model1.RowIdent{{ID: "default/p1", Source: "ctx-a"}},
+		},
+		"multi-context-rejects-empty-source": {
+			multi: true,
+			refs:  []model1.RowIdent{{ID: "default/p1"}},
+			e:     true,
+		},
+		"multi-context-rejects-any-empty-source": {
+			multi: true,
+			refs: []model1.RowIdent{
+				{ID: "default/p1", Source: "ctx-a"},
+				{ID: "default/p2"},
+			},
+			e: true,
+		},
+	}
+
+	for k := range uu {
+		u := uu[k]
+		t.Run(k, func(t *testing.T) {
+			assert.Equal(t, u.e, hasUnscopedSelection(u.multi, u.refs))
+		})
+	}
+}
+
 func TestFwFQN(t *testing.T) {
 	uu := map[string]struct {
 		po, co, e string

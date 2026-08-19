@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/derailed/k9s/internal/dao"
+	"github.com/derailed/k9s/internal/model1"
 	"github.com/derailed/k9s/internal/slogs"
 	"github.com/derailed/k9s/internal/ui"
 	"github.com/derailed/tcell/v2"
@@ -55,28 +56,31 @@ func (s *ScaleExtender) bindKeys(aa *ui.KeyActions) {
 }
 
 func (s *ScaleExtender) scaleCmd(*tcell.EventKey) *tcell.EventKey {
-	paths := s.GetTable().GetSelectedItems()
-	if len(paths) == 0 {
+	refs := s.GetTable().GetSelectedRefs()
+	if len(refs) == 0 {
+		return nil
+	}
+	if refuseUnscopedSelection(s.App(), refs) {
 		return nil
 	}
 
 	s.Stop()
 	defer s.Start()
-	s.showScaleDialog(paths)
+	s.showScaleDialog(refs)
 
 	return nil
 }
 
-func (s *ScaleExtender) showScaleDialog(paths []string) {
-	form, err := s.makeScaleForm(paths)
+func (s *ScaleExtender) showScaleDialog(refs []model1.RowIdent) {
+	form, err := s.makeScaleForm(refs)
 	if err != nil {
 		s.App().Flash().Err(err)
 		return
 	}
 	confirm := tview.NewModalForm("<Scale>", form)
-	msg := fmt.Sprintf("Scale %s %s?", singularize(s.GVR().R()), paths[0])
-	if len(paths) > 1 {
-		msg = fmt.Sprintf("Scale [%d] %s?", len(paths), s.GVR().R())
+	msg := fmt.Sprintf("Scale %s %s?", singularize(s.GVR().R()), refs[0].ID)
+	if len(refs) > 1 {
+		msg = fmt.Sprintf("Scale [%d] %s?", len(refs), s.GVR().R())
 	}
 	confirm.SetText(msg)
 	confirm.SetDoneFunc(func(int, string) {
@@ -108,7 +112,7 @@ func (s *ScaleExtender) replicasFromReady(_ string) (string, error) {
 	return strings.TrimRight(tokens[1], ui.DeltaSign), nil
 }
 
-func (s *ScaleExtender) replicasFromScaleSubresource(sel string) (string, error) {
+func (s *ScaleExtender) replicasFromScaleSubresource(sel model1.RowIdent) (string, error) {
 	res, err := dao.AccessorFor(s.App().factory, s.GVR())
 	if err != nil {
 		return "", err
@@ -122,7 +126,7 @@ func (s *ScaleExtender) replicasFromScaleSubresource(sel string) (string, error)
 	ctx, cancel := context.WithTimeout(context.Background(), s.App().Conn().Config().CallTimeout())
 	defer cancel()
 
-	replicas, err := replicasGetter.Replicas(ctx, sel)
+	replicas, err := replicasGetter.Replicas(scopedCtx(ctx, sel), sel.ID)
 	if err != nil {
 		return "", err
 	}
@@ -130,13 +134,13 @@ func (s *ScaleExtender) replicasFromScaleSubresource(sel string) (string, error)
 	return strconv.Itoa(int(replicas)), nil
 }
 
-func (s *ScaleExtender) makeScaleForm(fqns []string) (*tview.Form, error) {
+func (s *ScaleExtender) makeScaleForm(refs []model1.RowIdent) (*tview.Form, error) {
 	factor := "0"
-	if len(fqns) == 1 {
+	if len(refs) == 1 {
 		// If the CRD resource supports scaling, then first try to
 		// read the replicas directly from the CRD.
 		if meta, _ := dao.MetaAccess.MetaFor(s.GVR()); dao.IsScalable(meta) {
-			replicas, err := s.replicasFromScaleSubresource(fqns[0])
+			replicas, err := s.replicasFromScaleSubresource(refs[0])
 			if err == nil && replicas != "" {
 				factor = replicas
 			}
@@ -145,7 +149,7 @@ func (s *ScaleExtender) makeScaleForm(fqns []string) (*tview.Form, error) {
 		// For built-in resources or cases where we can't get the replicas from the CRD, we can
 		// only try to get the number of copies from the READY field.
 		if factor == "0" {
-			replicas, err := s.replicasFromReady(fqns[0])
+			replicas, err := s.replicasFromReady(refs[0].ID)
 			if err != nil {
 				return nil, err
 			}
@@ -179,17 +183,17 @@ func (s *ScaleExtender) makeScaleForm(fqns []string) (*tview.Form, error) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), s.App().Conn().Config().CallTimeout())
 		defer cancel()
-		for _, fqn := range fqns {
-			if err := s.scale(ctx, fqn, int32(count)); err != nil {
-				slog.Error("Unable to scale resource", slogs.FQN, fqn)
+		for _, ref := range refs {
+			if err := s.scale(scopedCtx(ctx, ref), ref.ID, int32(count)); err != nil {
+				slog.Error("Unable to scale resource", slogs.FQN, ref.ID)
 				s.App().Flash().Err(err)
 				return
 			}
 		}
-		if len(fqns) != 1 {
-			s.App().Flash().Infof("[%d] %s scaled successfully", len(fqns), singularize(s.GVR().R()))
+		if len(refs) != 1 {
+			s.App().Flash().Infof("[%d] %s scaled successfully", len(refs), singularize(s.GVR().R()))
 		} else {
-			s.App().Flash().Infof("%s %s scaled successfully", s.GVR().R(), fqns[0])
+			s.App().Flash().Infof("%s %s scaled successfully", s.GVR().R(), refs[0].ID)
 		}
 	})
 	f.AddButton("Cancel", func() {

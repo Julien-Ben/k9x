@@ -57,7 +57,7 @@ func TestTableSelection(t *testing.T) {
 	assert.Equal(t, "r1", v.GetSelectedItem())
 	assert.Equal(t, "blee", v.GetSelectedCell(0))
 	assert.Equal(t, 1, v.GetSelectedRowIndex())
-	assert.Equal(t, []string{"r1"}, v.GetSelectedItems())
+	assert.Equal(t, []model1.RowIdent{{ID: "r1"}}, v.GetSelectedRefs())
 
 	v.ClearSelection()
 	v.SelectFirstRow()

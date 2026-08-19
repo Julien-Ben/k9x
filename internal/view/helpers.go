@@ -27,6 +27,7 @@ import (
 	"github.com/sahilm/fuzzy"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
@@ -123,12 +124,50 @@ func defaultEnv(c *client.Config, path string, header model1.Header, row *model1
 	return env
 }
 
-func describeResource(app *App, m ui.Tabular, gvr *client.GVR, path string) {
+func describeResource(app *App, _ ui.Tabular, gvr *client.GVR, path string, sel model1.RowIdent) {
 	v := NewLiveView(app, "Describe", model.NewDescribe(gvr, path))
-	v.SetScopeContext(extractRowScope(m, path))
+	v.SetScopeContext(sel.Source)
 	if err := app.inject(v, false); err != nil {
 		app.Flash().Err(err)
 	}
+}
+
+func scopedCtx(ctx context.Context, ref model1.RowIdent) context.Context {
+	if ref.Source == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, internal.KeyScopeContext, ref.Source)
+}
+
+// getScopedResource fetches a resource from the selected row's source when
+// the factory supports multi-context routing, with the single-context fallback.
+func getScopedResource(factory dao.Factory, ctx context.Context, gvr *client.GVR, path string) (runtime.Object, error) {
+	if contextual, ok := factory.(dao.ContextualFactory); ok {
+		return contextual.GetWithContext(ctx, gvr, path, true, labels.Everything())
+	}
+	return factory.Get(gvr, path, true, labels.Everything())
+}
+
+const missingSourceContextMsg = "cannot route selection without source context"
+
+func hasUnscopedSelection(multiContext bool, refs []model1.RowIdent) bool {
+	if !multiContext {
+		return false
+	}
+	for _, ref := range refs {
+		if ref.Source == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func refuseUnscopedSelection(app *App, refs []model1.RowIdent) bool {
+	if !hasUnscopedSelection(app.Config.K9s.MultiContextMode, refs) {
+		return false
+	}
+	app.Flash().Errf(missingSourceContextMsg)
+	return true
 }
 
 func showReplicasets(app *App, path string, labelSel labels.Selector, fieldSel, scopeCtx string) {
@@ -178,25 +217,6 @@ func podCtx(_ *App, path, fieldSel, scopeCtx string) ContextFunc {
 		}
 		return ctx
 	}
-}
-
-// extractRowScope returns the source-context name of the row identified by
-// path in the given Tabular model, or "" when the row has no source (single-
-// context mode or unmatched path). Used by enter handlers to forward the
-// parent row's cluster into the child view's drill-down query.
-func extractRowScope(m ui.Tabular, path string) string {
-	if m == nil {
-		return ""
-	}
-	data := m.Peek()
-	if data == nil {
-		return ""
-	}
-	re, ok := data.FindRow(path)
-	if !ok {
-		return ""
-	}
-	return re.Row.Source
 }
 
 func extractApp(ctx context.Context) (*App, error) {

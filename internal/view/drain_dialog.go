@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/derailed/k9s/internal/dao"
+	"github.com/derailed/k9s/internal/model1"
 	"github.com/derailed/k9s/internal/ui"
 	"github.com/derailed/tview"
 )
@@ -16,10 +17,10 @@ import (
 const drainKey = "drain"
 
 // DrainFunc represents a drain callback function.
-type DrainFunc func(v ResourceViewer, sels []string, opts dao.DrainOptions)
+type DrainFunc func(v ResourceViewer, sels []model1.RowIdent, opts dao.DrainOptions)
 
 // ShowDrain pops a node drain dialog.
-func ShowDrain(view ResourceViewer, sels []string, opts dao.DrainOptions, okFn DrainFunc) {
+func ShowDrain(view ResourceViewer, sels []model1.RowIdent, opts dao.DrainOptions, okFn DrainFunc) {
 	styles := view.App().Styles.Dialog()
 
 	f := tview.NewForm().
@@ -74,7 +75,7 @@ func ShowDrain(view ResourceViewer, sels []string, opts dao.DrainOptions, okFn D
 	modal := tview.NewModalForm("<Drain>", f)
 	path := "Drain "
 	if len(sels) == 1 {
-		path += sels[0]
+		path += sels[0].ID
 	} else {
 		path += fmt.Sprintf("(%d) nodes", len(sels))
 	}

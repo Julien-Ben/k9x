@@ -34,8 +34,8 @@ func NewJob(gvr *client.GVR) ResourceViewer {
 	return &j
 }
 
-func (*Job) showPods(app *App, m ui.Tabular, _ *client.GVR, path string) {
-	scope := extractRowScope(m, path)
+func (*Job) showPods(app *App, _ ui.Tabular, _ *client.GVR, path string, sel RowIdent) {
+	scope := sel.Source
 	ctx := context.Background()
 	if scope != "" {
 		ctx = context.WithValue(ctx, internal.KeyScopeContext, scope)

@@ -9,6 +9,7 @@ import (
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/model"
+	"github.com/derailed/k9s/internal/model1"
 	"github.com/derailed/k9s/internal/ui"
 	"github.com/derailed/k9s/internal/view/cmd"
 )
@@ -25,6 +26,9 @@ const (
 )
 
 type (
+	// RowIdent identifies a selected row across contexts.
+	RowIdent = model1.RowIdent
+
 	// EnvFunc represent the current view exposed environment.
 	EnvFunc func() Env
 
@@ -32,7 +36,7 @@ type (
 	BoostActionsFunc func(ui.KeyActions)
 
 	// EnterFunc represents an enter key action.
-	EnterFunc func(app *App, model ui.Tabular, gvr *client.GVR, path string)
+	EnterFunc func(app *App, model ui.Tabular, gvr *client.GVR, path string, sel RowIdent)
 
 	// LogOptionsFunc returns the active log options.
 	LogOptionsFunc func(bool) (*dao.LogOptions, error)

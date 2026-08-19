@@ -129,7 +129,7 @@ func (c *Context) showRenameModal(name string, ok func(form *tview.Form, context
 	}
 }
 
-func (c *Context) useCtx(app *App, _ ui.Tabular, gvr *client.GVR, path string) {
+func (c *Context) useCtx(app *App, _ ui.Tabular, gvr *client.GVR, path string, _ RowIdent) {
 	slog.Debug("Using context",
 		slogs.GVR, gvr,
 		slogs.FQN, path,

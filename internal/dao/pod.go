@@ -217,20 +217,8 @@ func (p *Pod) TailLogs(ctx context.Context, opts *LogOptions) ([]LogChan, error)
 	if !ok {
 		return nil, errors.New("no factory in context")
 	}
-	scope, _ := ctx.Value(internal.KeyScopeContext).(string)
-	slog.Info("[multi-context dbg] Pod.TailLogs entry",
-		"path", opts.Path,
-		"opts.ScopeContext", opts.ScopeContext,
-		"ctx.KeyScopeContext", scope,
-		"factory.type", fmt.Sprintf("%T", fac),
-	)
 	o, err := getRes(fac, ctx, p.gvr, opts.Path)
 	if err != nil {
-		slog.Error("[multi-context dbg] Pod.TailLogs getRes failed",
-			"path", opts.Path,
-			"scope", scope,
-			"err", err,
-		)
 		return nil, err
 	}
 	var po v1.Pod

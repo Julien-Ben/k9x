@@ -38,13 +38,13 @@ type Node struct {
 }
 
 // ToggleCordon toggles cordon/uncordon a node.
-func (n *Node) ToggleCordon(fqn string, cordon bool) error {
+func (n *Node) ToggleCordon(ctx context.Context, fqn string, cordon bool) error {
 	slog.Debug("Toggle cordon on node",
 		slogs.GVR, n.GVR(),
 		slogs.FQN, fqn,
 		slogs.Bool, cordon,
 	)
-	o, err := FetchNode(context.Background(), n.Factory, fqn)
+	o, err := FetchNode(ctx, n.Factory, fqn)
 	if err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func (n *Node) ToggleCordon(fqn string, cordon bool) error {
 		}
 		return fmt.Errorf("node is already uncordoned")
 	}
-	dial, err := n.getFactory().Client().Dial()
+	dial, err := n.clientFor(ctx).Dial()
 	if err != nil {
 		return err
 	}
@@ -95,19 +95,19 @@ func (o DrainOptions) toDrainHelper(k kubernetes.Interface, w io.Writer) drain.H
 }
 
 // Drain drains a node.
-func (n *Node) Drain(path string, opts DrainOptions, w io.Writer) error {
-	cordoned, err := n.ensureCordoned(path)
+func (n *Node) Drain(ctx context.Context, path string, opts DrainOptions, w io.Writer) error {
+	cordoned, err := n.ensureCordoned(ctx, path)
 	if err != nil {
 		return err
 	}
 
 	if !cordoned {
-		if e := n.ToggleCordon(path, true); e != nil {
+		if e := n.ToggleCordon(ctx, path, true); e != nil {
 			return e
 		}
 	}
 
-	dial, err := n.getFactory().Client().Dial()
+	dial, err := n.clientFor(ctx).Dial()
 	if err != nil {
 		return err
 	}
@@ -253,8 +253,8 @@ func (n *Node) GetPods(nodeName string) ([]*v1.Pod, error) {
 }
 
 // ensureCordoned returns whether the given node has been cordoned
-func (n *Node) ensureCordoned(path string) (bool, error) {
-	o, err := FetchNode(context.Background(), n.Factory, path)
+func (n *Node) ensureCordoned(ctx context.Context, path string) (bool, error) {
+	o, err := FetchNode(ctx, n.Factory, path)
 	if err != nil {
 		return false, err
 	}
@@ -266,9 +266,13 @@ func (n *Node) ensureCordoned(path string) (bool, error) {
 // Helpers...
 
 // FetchNode retrieves a node.
-func FetchNode(_ context.Context, f Factory, path string) (*v1.Node, error) {
+func FetchNode(ctx context.Context, f Factory, path string) (*v1.Node, error) {
 	_, n := client.Namespaced(path)
-	auth, err := f.Client().CanI(client.ClusterScope, client.NodeGVR, n, client.GetAccess)
+	conn := f.Client()
+	if cf, ok := f.(ContextualFactory); ok {
+		conn = cf.ClientFor(ctx)
+	}
+	auth, err := conn.CanI(client.ClusterScope, client.NodeGVR, n, client.GetAccess)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +280,7 @@ func FetchNode(_ context.Context, f Factory, path string) (*v1.Node, error) {
 		return nil, fmt.Errorf("user is not authorized to list nodes")
 	}
 
-	o, err := f.Get(client.NodeGVR, client.FQN(client.ClusterScope, path), true, labels.Everything())
+	o, err := getRes(f, ctx, client.NodeGVR, client.FQN(client.ClusterScope, path))
 	if err != nil {
 		return nil, err
 	}

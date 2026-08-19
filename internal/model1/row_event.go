@@ -247,7 +247,7 @@ func (r *RowEvents) Range(f ReRangeFn) {
 
 // Get returns the event for the given StoreKey. In single-context mode the
 // key equals Row.ID; in multi-context mode callers must pass StoreKey
-// (Source@ID) to avoid ambiguity. Use FindByID for FQN-only lookups.
+// (Source@ID) to avoid ambiguity.
 func (r *RowEvents) Get(key string) (RowEvent, bool) {
 	i, ok := r.index[key]
 	if !ok {
@@ -262,21 +262,6 @@ func (r *RowEvents) FindIndex(key string) (int, bool) {
 	i, ok := r.index[key]
 
 	return i, ok
-}
-
-// FindByID returns the first event whose Row.ID matches id, ignoring Source.
-// Used by external callers that only have an FQN (e.g. synthetic-row lookups
-// like the "all" namespace, or pre-multi-context selection paths). In
-// multi-context mode multiple rows may share an ID; this returns the first
-// in storage order, which is good enough for the few legacy callers — new
-// code should prefer FindIndex / Get with an explicit StoreKey.
-func (r *RowEvents) FindByID(id string) (RowEvent, bool) {
-	for _, e := range r.events {
-		if e.Row.ID == id {
-			return e, true
-		}
-	}
-	return RowEvent{}, false
 }
 
 // Sort rows based on column index and order.

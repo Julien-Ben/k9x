@@ -38,11 +38,11 @@ func NewDaemonSet(gvr *client.GVR) ResourceViewer {
 	return &d
 }
 
-func (d *DaemonSet) showPods(app *App, m ui.Tabular, _ *client.GVR, path string) {
+func (d *DaemonSet) showPods(app *App, _ ui.Tabular, _ *client.GVR, path string, sel RowIdent) {
 	var res dao.DaemonSet
 	res.Init(app.factory, d.GVR())
 
-	scope := extractRowScope(m, path)
+	scope := sel.Source
 	ctx := context.Background()
 	if scope != "" {
 		ctx = context.WithValue(ctx, internal.KeyScopeContext, scope)

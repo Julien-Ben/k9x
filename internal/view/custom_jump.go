@@ -15,15 +15,16 @@ import (
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/config"
 	"github.com/derailed/k9s/internal/dao"
+	"github.com/derailed/k9s/internal/model1"
 	"github.com/derailed/k9s/internal/slogs"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
 // customJump handles custom jumps between CRDs based on user configuration.
-func customJump(app *App, sourceGVR *client.GVR, sourcePath string, rule *config.JumpRule) error {
+func customJump(app *App, sourceGVR *client.GVR, sourcePath string, sel model1.RowIdent, rule *config.JumpRule) error {
 	// Get the source resource to extract metadata for templating
-	sourceObj, err := fetchResourceObject(app, sourceGVR, sourcePath)
+	sourceObj, err := fetchResourceObject(scopedCtx(context.Background(), sel), app, sourceGVR, sourcePath)
 	if err != nil {
 		return fmt.Errorf("failed to fetch source resource: %w", err)
 	}
@@ -82,6 +83,7 @@ func customJump(app *App, sourceGVR *client.GVR, sourcePath string, rule *config
 
 	// Set up the context for the jump
 	v.SetContextFn(func(ctx context.Context) context.Context {
+		ctx = scopedCtx(ctx, sel)
 		if fieldSel != "" {
 			ctx = context.WithValue(ctx, internal.KeyFields, fieldSel)
 		}
@@ -104,13 +106,13 @@ func customJump(app *App, sourceGVR *client.GVR, sourcePath string, rule *config
 }
 
 // fetchResourceObject retrieves the full resource object for templating.
-func fetchResourceObject(app *App, gvr *client.GVR, path string) (map[string]any, error) {
+func fetchResourceObject(ctx context.Context, app *App, gvr *client.GVR, path string) (map[string]any, error) {
 	accessor, err := dao.AccessorFor(app.factory, gvr)
 	if err != nil {
 		return nil, err
 	}
 
-	o, err := accessor.Get(context.Background(), path)
+	o, err := accessor.Get(ctx, path)
 	if err != nil {
 		return nil, err
 	}

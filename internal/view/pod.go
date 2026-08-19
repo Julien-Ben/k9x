@@ -147,7 +147,7 @@ func (p *Pod) logOptions(prev bool) (*dao.LogOptions, error) {
 	return podLogOptions(p.App(), path, prev, &pod.ObjectMeta, &pod.Spec), nil
 }
 
-func (p *Pod) showContainers(app *App, _ ui.Tabular, _ *client.GVR, _ string) {
+func (p *Pod) showContainers(app *App, _ ui.Tabular, _ *client.GVR, _ string, _ RowIdent) {
 	co := NewContainer(client.CoGVR)
 	co.SetContextFn(p.coContext)
 	if err := app.inject(co, false); err != nil {
@@ -189,9 +189,12 @@ func (p *Pod) showNode(evt *tcell.EventKey) *tcell.EventKey {
 }
 
 func (p *Pod) killCmd(evt *tcell.EventKey) *tcell.EventKey {
-	selections := p.GetTable().GetSelectedItems()
+	selections := p.GetTable().GetSelectedRefs()
 	if len(selections) == 0 {
 		return evt
+	}
+	if refuseUnscopedSelection(p.App(), selections) {
+		return nil
 	}
 
 	res, err := dao.AccessorFor(p.App().factory, p.GVR())
@@ -207,16 +210,16 @@ func (p *Pod) killCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if len(selections) > 1 {
 		p.App().Flash().Infof("Delete %d marked %s", len(selections), p.GVR())
 	} else {
-		p.App().Flash().Infof("Delete resource %s %s", p.GVR(), selections[0])
+		p.App().Flash().Infof("Delete resource %s %s", p.GVR(), selections[0].ID)
 	}
 	p.GetTable().ShowDeleted()
-	for _, path := range selections {
-		if err := nuker.Delete(context.Background(), path, nil, dao.NowGrace); err != nil {
+	for _, ref := range selections {
+		if err := nuker.Delete(scopedCtx(context.Background(), ref), ref.ID, nil, dao.NowGrace); err != nil {
 			p.App().Flash().Errf("Delete failed with %s", err)
 		} else {
-			p.App().factory.DeleteForwarder(path)
+			p.App().factory.DeleteForwarder(ref.ID)
 		}
-		p.GetTable().DeleteMark(path)
+		p.GetTable().DeleteMark(ref)
 	}
 	p.Refresh()
 

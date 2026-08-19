@@ -57,11 +57,11 @@ func (s *Service) bindKeys(aa *ui.KeyActions) {
 	})
 }
 
-func (s *Service) showPods(a *App, m ui.Tabular, _ *client.GVR, path string) {
+func (s *Service) showPods(a *App, _ ui.Tabular, _ *client.GVR, path string, sel RowIdent) {
 	var res dao.Service
 	res.Init(a.factory, s.GVR())
 
-	scope := extractRowScope(m, path)
+	scope := sel.Source
 	ctx := context.Background()
 	if scope != "" {
 		ctx = context.WithValue(ctx, internal.KeyScopeContext, scope)
@@ -80,7 +80,7 @@ func (s *Service) showPods(a *App, m ui.Tabular, _ *client.GVR, path string) {
 		return
 	}
 
-	showPods(a, path, labels.SelectorFromSet(svc.Spec.Selector), "", extractRowScope(m, path))
+	showPods(a, path, labels.SelectorFromSet(svc.Spec.Selector), "", sel.Source)
 }
 
 func (*Service) checkSvc(svc *v1.Service) error {

@@ -63,9 +63,9 @@ type childFactory interface {
 // MultiFactory aggregates Factories from multiple kubeconfig contexts behind
 // the dao.LifecycleFactory interface. List fans out across all children and
 // merges results, tagging each object with its source context via the
-// render.SourceContextAnnotation annotation. Get and forwarder operations are
-// routed to the primary only — describe/yaml/port-forward are blanket-disabled
-// in multi-context mode for the demo, so non-primary routing is not required.
+// render.SourceContextAnnotation annotation. Context-aware reads and mutations
+// route to the child named by internal.KeyScopeContext; unscoped calls keep the
+// primary/single-context behavior.
 type MultiFactory struct {
 	children            map[string]childFactory
 	primary             string
@@ -97,9 +97,9 @@ func NewMultiFactory(primary string, children map[string]*Factory) (*MultiFactor
 		cc[k] = v
 	}
 	return &MultiFactory{
-		children:           cc,
-		primary:            primary,
-		childListTimeout:   defaultChildListTimeout,
+		children:                cc,
+		primary:                 primary,
+		childListTimeout:        defaultChildListTimeout,
 		flashedDivergences:      make(map[string]struct{}),
 		health:                  initHealth(cc),
 		quarantineProbeInterval: defaultQuarantineProbeInterval,
@@ -113,9 +113,9 @@ func newMultiFactoryForTesting(primary string, children map[string]childFactory)
 		return nil, fmt.Errorf("primary context %q not present in children", primary)
 	}
 	return &MultiFactory{
-		children:           children,
-		primary:            primary,
-		childListTimeout:   defaultChildListTimeout,
+		children:                children,
+		primary:                 primary,
+		childListTimeout:        defaultChildListTimeout,
 		flashedDivergences:      make(map[string]struct{}),
 		health:                  initHealth(children),
 		quarantineProbeInterval: defaultQuarantineProbeInterval,
@@ -469,10 +469,10 @@ func (m *MultiFactory) listImpl(ctx context.Context, gvr *client.GVR, ns string,
 	})
 
 	var (
-		merged       []runtime.Object
-		errs         []ContextError
-		divergences  []ContextError
-		successes    int
+		merged      []runtime.Object
+		errs        []ContextError
+		divergences []ContextError
+		successes   int
 	)
 	for _, r := range results {
 		if r.err != nil {

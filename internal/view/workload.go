@@ -13,6 +13,7 @@ import (
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/model"
+	"github.com/derailed/k9s/internal/model1"
 	"github.com/derailed/k9s/internal/slogs"
 	"github.com/derailed/k9s/internal/ui"
 	"github.com/derailed/k9s/internal/ui/dialog"
@@ -76,7 +77,7 @@ func parsePath(path string) (*client.GVR, string, bool) {
 	return client.NewGVR(tt[0]), client.FQN(tt[1], tt[2]), true
 }
 
-func (*Workload) showRes(app *App, _ ui.Tabular, _ *client.GVR, path string) {
+func (*Workload) showRes(app *App, _ ui.Tabular, _ *client.GVR, path string, _ RowIdent) {
 	gvr, fqn, ok := parsePath(path)
 	if !ok {
 		app.Flash().Err(fmt.Errorf("unable to parse path: %q", path))
@@ -86,15 +87,18 @@ func (*Workload) showRes(app *App, _ ui.Tabular, _ *client.GVR, path string) {
 }
 
 func (w *Workload) deleteCmd(evt *tcell.EventKey) *tcell.EventKey {
-	selections := w.GetTable().GetSelectedItems()
+	selections := w.GetTable().GetSelectedRefs()
 	if len(selections) == 0 {
 		return evt
+	}
+	if refuseUnscopedSelection(w.App(), selections) {
+		return nil
 	}
 
 	w.Stop()
 	defer w.Start()
 	{
-		msg := fmt.Sprintf("Delete %s %s?", w.GVR().R(), selections[0])
+		msg := fmt.Sprintf("Delete %s %s?", w.GVR().R(), selections[0].ID)
 		if len(selections) > 1 {
 			msg = fmt.Sprintf("Delete %d marked %s?", len(selections), w.GVR())
 		}
@@ -121,18 +125,18 @@ func (w *Workload) defaultContext(gvr *client.GVR, fqn string) context.Context {
 	return ctx
 }
 
-func (w *Workload) resourceDelete(selections []string, msg string) {
+func (w *Workload) resourceDelete(selections []model1.RowIdent, msg string) {
 	okFn := func(propagation *metav1.DeletionPropagation, force bool) {
 		w.GetTable().ShowDeleted()
 		if len(selections) > 1 {
 			w.App().Flash().Infof("Delete %d marked %s", len(selections), w.GVR())
 		} else {
-			w.App().Flash().Infof("Delete resource %s %s", w.GVR(), selections[0])
+			w.App().Flash().Infof("Delete resource %s %s", w.GVR(), selections[0].ID)
 		}
 		for _, sel := range selections {
-			gvr, fqn, ok := parsePath(sel)
+			gvr, fqn, ok := parsePath(sel.ID)
 			if !ok {
-				w.App().Flash().Err(fmt.Errorf("unable to parse path: %q", sel))
+				w.App().Flash().Err(fmt.Errorf("unable to parse path: %q", sel.ID))
 				return
 			}
 
@@ -140,10 +144,10 @@ func (w *Workload) resourceDelete(selections []string, msg string) {
 			if force {
 				grace = dao.ForceGrace
 			}
-			if err := w.GetTable().GetModel().Delete(w.defaultContext(gvr, fqn), fqn, propagation, grace); err != nil {
+			if err := w.GetTable().GetModel().Delete(scopedCtx(w.defaultContext(gvr, fqn), sel), fqn, propagation, grace); err != nil {
 				w.App().Flash().Errf("Delete failed with `%s", err)
 			} else {
-				w.App().factory.DeleteForwarder(sel)
+				w.App().factory.DeleteForwarder(sel.ID)
 			}
 			w.GetTable().DeleteMark(sel)
 		}
@@ -164,7 +168,7 @@ func (w *Workload) describeCmd(evt *tcell.EventKey) *tcell.EventKey {
 		return evt
 	}
 
-	describeResource(w.App(), nil, gvr, fqn)
+	describeResource(w.App(), nil, gvr, fqn, RowIdent{ID: fqn, Source: w.GetTable().selectedContext()})
 
 	return nil
 }

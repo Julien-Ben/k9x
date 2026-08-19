@@ -66,7 +66,7 @@ func NewTable(gvr *client.GVR) *Table {
 		SelectTable: &SelectTable{
 			Table: tview.NewTable(),
 			model: model.NewTable(gvr),
-			marks: sets.New[string](),
+			marks: sets.New[model1.RowIdent](),
 		},
 		ctx:     context.Background(),
 		gvr:     gvr,
@@ -519,7 +519,7 @@ func (t *Table) buildRow(r int, re, ore model1.RowEvent, h model1.Header, pads M
 		color = t.colorerFn
 	}
 
-	marked := t.IsMarked(re.Row.ID)
+	marked := t.IsMarked(re.Row.Ident())
 	var col int
 	ns := t.GetModel().GetNamespace()
 	for c, field := range re.Row.Fields {

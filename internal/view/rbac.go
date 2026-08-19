@@ -33,7 +33,7 @@ func (*Rbac) bindKeys(aa *ui.KeyActions) {
 	aa.Delete(ui.KeyShiftA, tcell.KeyCtrlSpace, ui.KeySpace)
 }
 
-func showRules(app *App, _ ui.Tabular, gvr *client.GVR, path string) {
+func showRules(app *App, _ ui.Tabular, gvr *client.GVR, path string, _ RowIdent) {
 	v := NewRbac(client.RbacGVR)
 	v.SetContextFn(rbacCtx(gvr, path))
 
@@ -49,4 +49,4 @@ func rbacCtx(gvr *client.GVR, path string) ContextFunc {
 	}
 }
 
-func blankEnterFn(_ *App, _ ui.Tabular, _ *client.GVR, _ string) {}
+func blankEnterFn(_ *App, _ ui.Tabular, _ *client.GVR, _ string, _ RowIdent) {}

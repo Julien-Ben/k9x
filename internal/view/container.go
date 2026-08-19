@@ -95,7 +95,7 @@ func (c *Container) bindKeys(aa *ui.KeyActions) {
 
 func (c *Container) k9sEnv() Env {
 	path := c.GetTable().GetSelectedItem()
-	row := c.GetTable().GetSelectedRow(path)
+	row := c.GetTable().GetSelectedRowRef()
 	env := defaultEnv(c.App().Conn().Config(), path, c.GetTable().GetModel().Peek().Header(), row)
 	env["NAMESPACE"], env["POD"] = client.Namespaced(c.GetTable().Path)
 
@@ -122,7 +122,7 @@ func (c *Container) logOptions(prev bool) (*dao.LogOptions, error) {
 	return &opts, nil
 }
 
-func (c *Container) viewLogs(*App, ui.Tabular, *client.GVR, string) {
+func (c *Container) viewLogs(*App, ui.Tabular, *client.GVR, string, RowIdent) {
 	c.ResourceViewer.(*LogsExtender).showLogs(c.GetTable().Path, false)
 }
 
