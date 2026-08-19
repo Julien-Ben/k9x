@@ -49,6 +49,10 @@ func (p *PortForwardExtender) portFwdCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if path == "" {
 		return evt
 	}
+	if err := guardPrimaryOnlyAction(p.App(), p.GetTable().selectedContext(), "Port-forward"); err != nil {
+		p.App().Flash().Err(err)
+		return nil
+	}
 
 	podName, err := p.fetchPodName(path)
 	if err != nil {
@@ -70,6 +74,10 @@ func (p *PortForwardExtender) showPFCmd(evt *tcell.EventKey) *tcell.EventKey {
 	path := p.GetTable().GetSelectedItem()
 	if path == "" {
 		return evt
+	}
+	if err := guardPrimaryOnlyAction(p.App(), p.GetTable().selectedContext(), "Port-forward"); err != nil {
+		p.App().Flash().Err(err)
+		return nil
 	}
 
 	podName, err := p.fetchPodName(path)

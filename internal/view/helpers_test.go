@@ -18,6 +18,7 @@ import (
 	"github.com/derailed/tcell/v2"
 	"github.com/sahilm/fuzzy"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
@@ -207,6 +208,31 @@ func TestK9sEnv(t *testing.T) {
 	assert.Equal(t, "a1", env["COL-A"])
 	assert.Equal(t, "b1", env["COL-B"])
 	assert.Equal(t, "c1", env["COL-C"])
+}
+
+func TestGuardPrimaryOnly(t *testing.T) {
+	tests := []struct {
+		name    string
+		multi   bool
+		primary string
+		scope   string
+		wantErr string
+	}{
+		{name: "single context", scope: "other"},
+		{name: "primary row", multi: true, primary: "ctx-a", scope: "ctx-a"},
+		{name: "missing source", multi: true, primary: "ctx-a", wantErr: "Port-forward is unavailable without a source context"},
+		{name: "non-primary row", multi: true, primary: "ctx-a", scope: "ctx-b", wantErr: `Port-forward is only supported for primary context "ctx-a"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := guardPrimaryOnly(tt.multi, tt.primary, tt.scope, "Port-forward")
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tt.wantErr)
+		})
+	}
 }
 
 func TestIsTCPPort(t *testing.T) {

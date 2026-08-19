@@ -124,6 +124,23 @@ func defaultEnv(c *client.Config, path string, header model1.Header, row *model1
 	return env
 }
 
+func guardPrimaryOnly(multi bool, primary, scope, action string) error {
+	if !multi {
+		return nil
+	}
+	if scope == "" {
+		return fmt.Errorf("%s is unavailable without a source context", action)
+	}
+	if scope != primary {
+		return fmt.Errorf("%s is only supported for primary context %q", action, primary)
+	}
+	return nil
+}
+
+func guardPrimaryOnlyAction(app *App, scope, action string) error {
+	return guardPrimaryOnly(app.Config.K9s.MultiContextMode, app.Config.K9s.ActiveContextName(), scope, action)
+}
+
 func describeResource(app *App, _ ui.Tabular, gvr *client.GVR, path string, sel model1.RowIdent) {
 	v := NewLiveView(app, "Describe", model.NewDescribe(gvr, path))
 	v.SetScopeContext(sel.Source)

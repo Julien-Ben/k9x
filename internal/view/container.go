@@ -138,6 +138,10 @@ func (c *Container) showPFCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if path == "" {
 		return evt
 	}
+	if err := guardPrimaryOnlyAction(c.App(), c.scopeContext, "Port-forward"); err != nil {
+		c.App().Flash().Err(err)
+		return nil
+	}
 
 	if !c.App().factory.Forwarders().IsContainerForwarded(c.GetTable().Path, path) {
 		c.App().Flash().Errf("no port-forward defined")
@@ -202,6 +206,10 @@ func (c *Container) portFwdCmd(evt *tcell.EventKey) *tcell.EventKey {
 	path := c.GetTable().GetSelectedItem()
 	if path == "" {
 		return evt
+	}
+	if err := guardPrimaryOnlyAction(c.App(), c.scopeContext, "Port-forward"); err != nil {
+		c.App().Flash().Err(err)
+		return nil
 	}
 
 	if _, ok := c.App().factory.ForwarderFor(fwFQN(c.GetTable().Path, path)); ok {

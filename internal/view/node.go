@@ -17,7 +17,6 @@ import (
 	"github.com/derailed/k9s/internal/ui"
 	"github.com/derailed/k9s/internal/ui/dialog"
 	"github.com/derailed/tcell/v2"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Node represents a node view.
@@ -196,6 +195,10 @@ func (n *Node) sshCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if path == "" {
 		return evt
 	}
+	if err := guardPrimaryOnlyAction(n.App(), n.selectedScope(), "Node shell"); err != nil {
+		n.App().Flash().Err(err)
+		return nil
+	}
 
 	n.Stop()
 	defer n.Start()
@@ -213,32 +216,25 @@ func (n *Node) yamlCmd(evt *tcell.EventKey) *tcell.EventKey {
 
 	n.Stop()
 	defer n.Start()
-	ctx, cancel := context.WithTimeout(context.Background(), n.App().Conn().Config().CallTimeout())
-	defer cancel()
-
-	sel := n.GetTable().GetSelectedItem()
-	gvr := n.GVR().GVR()
-	dial, err := n.App().factory.Client().DynDial()
+	var res dao.Generic
+	res.Init(n.App().factory, n.GVR())
+	raw, err := res.ToYAMLWithContext(contextForScope(n.selectedScope()), path, false)
 	if err != nil {
 		n.App().Flash().Err(err)
 		return nil
 	}
-	o, err := dial.Resource(gvr).Get(ctx, sel, metav1.GetOptions{})
-	if err != nil {
-		n.App().Flash().Errf("Unable to get resource %q -- %s", n.GVR(), err)
-		return nil
-	}
 
-	raw, err := dao.ToYAML(o, false)
-	if err != nil {
-		n.App().Flash().Errf("Unable to marshal resource %s", err)
-		return nil
-	}
-
-	details := NewDetails(n.App(), yamlAction, sel, contentYAML, true).Update(raw)
+	details := NewDetails(n.App(), yamlAction, path, contentYAML, true).Update(raw)
 	if err := n.App().inject(details, false); err != nil {
 		n.App().Flash().Err(err)
 	}
 
 	return nil
+}
+
+func (n *Node) selectedScope() string {
+	if scope := n.GetTable().selectedContext(); scope != "" {
+		return scope
+	}
+	return n.scopeContext
 }
