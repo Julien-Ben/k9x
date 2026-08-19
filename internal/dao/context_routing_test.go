@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -154,6 +155,18 @@ func TestReplicaSetRollbackRoutesViaScopeContext(t *testing.T) {
 	assert.Zero(t, f.plainGetCalls)
 }
 
+func TestWorkloadDeleteRoutesViaScopeContext(t *testing.T) {
+	f := newScopedRoutingFactory(t, nil)
+	var workload dao.Workload
+	workload.Init(f, client.WkGVR)
+	ctx := context.WithValue(scopedRoutingCtx("ctx-b"), internal.KeyGVR, client.PodGVR)
+
+	err := workload.Delete(ctx, "default/pod-a", nil, dao.DefaultGrace)
+	require.ErrorIs(t, err, errScopedDial)
+	assert.Equal(t, []string{"ctx-b"}, f.clientForScopes)
+	assert.Equal(t, 1, f.conn.dialCalls)
+}
+
 type scopedRoutingConn struct {
 	conn
 
@@ -168,6 +181,10 @@ func (c *scopedRoutingConn) Dial() (kubernetes.Interface, error) {
 func (c *scopedRoutingConn) DynDial() (dynamic.Interface, error) {
 	c.dialCalls++
 	return nil, errScopedDial
+}
+
+func (*scopedRoutingConn) Config() *client.Config {
+	return client.NewConfig(genericclioptions.NewConfigFlags(false))
 }
 
 type scopedRoutingFactory struct {

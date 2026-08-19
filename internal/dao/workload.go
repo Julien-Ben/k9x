@@ -43,7 +43,15 @@ type Workload struct {
 func (w *Workload) Delete(ctx context.Context, path string, propagation *metav1.DeletionPropagation, grace Grace) error {
 	gvr, _ := ctx.Value(internal.KeyGVR).(*client.GVR)
 	ns, n := client.Namespaced(path)
-	auth, err := w.Client().CanI(ns, gvr, n, []string{client.DeleteVerb})
+	conn := w.Client()
+	if cf, ok := w.Factory.(ContextualFactory); ok {
+		var err error
+		conn, err = cf.ClientFor(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	auth, err := conn.CanI(ns, gvr, n, []string{client.DeleteVerb})
 	if err != nil {
 		return err
 	}
@@ -60,10 +68,10 @@ func (w *Workload) Delete(ctx context.Context, path string, propagation *metav1.
 		GracePeriodSeconds: gracePeriod,
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, w.Client().Config().CallTimeout())
+	ctx, cancel := context.WithTimeout(ctx, conn.Config().CallTimeout())
 	defer cancel()
 
-	d, err := w.Client().DynDial()
+	d, err := conn.DynDial()
 	if err != nil {
 		return err
 	}
