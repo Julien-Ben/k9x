@@ -136,8 +136,12 @@ func (c *CronJob) toggleSuspendCmd(evt *tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 
-	cell := table.GetCell(c.GetTable().GetSelectedRowIndex(), c.GetTable().NameColIndex()+2)
-
+	suspendCol, ok := table.HeaderIndex("SUSPEND")
+	if !ok {
+		c.App().Flash().Errf("Unable to locate suspend status")
+		return nil
+	}
+	cell := table.GetCell(table.GetSelectedRowIndex(), suspendCol)
 	if cell == nil {
 		c.App().Flash().Errf("Unable to assert current status")
 		return nil

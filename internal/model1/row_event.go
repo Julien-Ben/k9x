@@ -313,12 +313,11 @@ func (r RowEventSorter) Swap(i, j int) {
 }
 
 func (r RowEventSorter) Less(i, j int) bool {
-	f1, f2 := r.Events.events[i].Row.Fields, r.Events.events[j].Row.Fields
-	id1, id2 := r.Events.events[i].Row.ID, r.Events.events[j].Row.ID
-	less := Less(r.IsNumber, r.IsDuration, r.IsCapacity, id1, id2, f1[r.Index], f2[r.Index])
+	row1, row2 := r.Events.events[i].Row, r.Events.events[j].Row
+	f1, f2 := row1.Fields, row2.Fields
+	id1, id2 := row1.StoreKey(), row2.StoreKey()
 	if r.Asc {
-		return less
+		return Less(r.IsNumber, r.IsDuration, r.IsCapacity, id1, id2, f1[r.Index], f2[r.Index])
 	}
-
-	return !less
+	return Less(r.IsNumber, r.IsDuration, r.IsCapacity, id2, id1, f2[r.Index], f1[r.Index])
 }

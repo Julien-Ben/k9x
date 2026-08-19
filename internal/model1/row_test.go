@@ -394,6 +394,21 @@ func TestRowsSortText(t *testing.T) {
 	}
 }
 
+func TestRowsSortUsesSourceAsTwinTiebreaker(t *testing.T) {
+	for _, asc := range []bool{true, false} {
+		rows := model1.Rows{
+			{ID: "default/twin", Source: "ctx-b", Fields: model1.Fields{"twin"}},
+			{ID: "default/twin", Source: "ctx-a", Fields: model1.Fields{"twin"}},
+		}
+		rows.Sort(0, asc, false, false, false)
+		if asc {
+			assert.Equal(t, "ctx-a", rows[0].Source)
+		} else {
+			assert.Equal(t, "ctx-b", rows[0].Source)
+		}
+	}
+}
+
 func TestRowsSortDuration(t *testing.T) {
 	uu := map[string]struct {
 		rows model1.Rows

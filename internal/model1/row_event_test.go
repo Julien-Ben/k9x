@@ -515,6 +515,22 @@ func TestRowEventsSort(t *testing.T) {
 	}
 }
 
+func TestRowEventsSortUsesSourceAsTwinTiebreaker(t *testing.T) {
+	events := model1.NewRowEventsWithEvts(
+		model1.RowEvent{Row: model1.Row{ID: "default/twin", Source: "ctx-b", Fields: model1.Fields{"twin"}}},
+		model1.RowEvent{Row: model1.Row{ID: "default/twin", Source: "ctx-a", Fields: model1.Fields{"twin"}}},
+	)
+	events.Sort("", 0, false, false, false, true)
+	first, ok := events.At(0)
+	require.True(t, ok)
+	assert.Equal(t, "ctx-a", first.Row.Source)
+
+	events.Sort("", 0, false, false, false, false)
+	first, ok = events.At(0)
+	require.True(t, ok)
+	assert.Equal(t, "ctx-b", first.Row.Source)
+}
+
 func TestRowEventsClone(t *testing.T) {
 	uu := map[string]struct {
 		r *model1.RowEvents

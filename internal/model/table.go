@@ -302,7 +302,7 @@ func (t *Table) reconcile(ctx context.Context) error {
 		r := new(render.ContextManager)
 		r.SetViewSetting(t.vs)
 		return t.data.Render(ctx, r, oo)
-	} else if multi && !client.IsNestedGVR(t.gvr) {
+	} else if _, tableFallback := meta.DAO.(*dao.Table); multi && !client.IsNestedGVR(t.gvr) && !tableFallback {
 		r := render.NewMultiContextRenderer(meta.Renderer)
 		r.SetViewSetting(t.vs)
 		return t.data.Render(ctx, r, oo)

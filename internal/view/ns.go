@@ -74,29 +74,38 @@ func (n *Namespace) decorate(td *model1.TableData) {
 	if n.App().Conn() == nil || td.RowCount() == 0 {
 		return
 	}
+	decorateNamespaceRows(td, sets.New(n.App().Config.FavNamespaces()...), n.App().Config.ActiveNamespace())
+}
+
+func decorateNamespaceRows(td *model1.TableData, favs sets.Set[string], activeNS string) {
+	nameCol, ok := td.Header().IndexOf("NAME", true)
+	if !ok {
+		return
+	}
 	// checks if all ns is in the list if not add it.
 	if _, ok := td.FindRow(client.NamespaceAll); !ok {
+		fields := make(model1.Fields, td.HeaderCount())
+		fields[nameCol] = client.NamespaceAll
+		if statusCol, found := td.Header().IndexOf("STATUS", true); found {
+			fields[statusCol] = "Active"
+		}
 		td.AddRow(model1.RowEvent{
 			Kind: model1.EventUnchanged,
 			Row: model1.Row{
 				ID:     client.NamespaceAll,
-				Fields: model1.Fields{client.NamespaceAll, "Active", "", "", ""},
+				Fields: fields,
 			},
 		},
 		)
 	}
 
-	var (
-		favs     = sets.New(n.App().Config.FavNamespaces()...)
-		activeNS = n.App().Config.ActiveNamespace()
-	)
 	td.RowsRange(func(i int, re model1.RowEvent) bool {
-		_, n := client.Namespaced(re.Row.ID)
-		if favs.Has(n) {
-			re.Row.Fields[0] += favNSIndicator
+		_, name := client.Namespaced(re.Row.ID)
+		if favs.Has(name) {
+			re.Row.Fields[nameCol] += favNSIndicator
 		}
-		if n == activeNS {
-			re.Row.Fields[0] += defaultNSIndicator
+		if name == activeNS {
+			re.Row.Fields[nameCol] += defaultNSIndicator
 		}
 		re.Kind = model1.EventUnchanged
 		td.SetRow(i, re)

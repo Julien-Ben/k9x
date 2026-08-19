@@ -61,8 +61,13 @@ func (Context) Header(string) model1.Header {
 // ColorerFunc colors a multi-context manager row.
 func (ContextManager) ColorerFunc() model1.ColorerFunc {
 	return func(ns string, h model1.Header, r *model1.RowEvent) tcell.Color {
-		if idx, ok := h.IndexOf("HEALTH", true); ok && strings.TrimSpace(r.Row.Fields[idx]) == ContextHealthDisabled {
-			return tcell.ColorGray
+		if idx, ok := h.IndexOf("HEALTH", true); ok {
+			switch strings.TrimSpace(r.Row.Fields[idx]) {
+			case ContextHealthDisabled:
+				return tcell.ColorGray
+			case ContextHealthQuarantined:
+				return tcell.ColorOrange
+			}
 		}
 		return Context{}.ColorerFunc()(ns, h, r)
 	}

@@ -107,21 +107,29 @@ var reservedGVRs = sets.New(
 	GrpGVR,
 )
 
-// nestedGVRs are synthesized / drill-down views whose rows are by
-// definition single-cluster (they require a parent selection or hold
-// app-local state). In multi-context mode the CONTEXT column would
-// render with empty cells for these, so MultiContextRenderer is not
-// applied. Kept narrow on purpose: top-level reserved views like
-// workloads / contexts / pulses still get the column.
+// nestedGVRs are synthesized, app-local, or explicitly primary-only views
+// whose rows do not carry a source-cluster annotation. MultiContextRenderer
+// is not applied because a blank CONTEXT column would imply fan-out that did
+// not occur.
 var nestedGVRs = sets.New(
+	CpuGVR,  // primary-only metrics view
+	MemGVR,  // primary-only metrics view
+	WkGVR,   // primary-only aggregate
 	CoGVR,   // containers - drill into a pod
 	RefGVR,  // references - synthesized scan
+	PuGVR,   // primary-only pulse aggregate
 	ScnGVR,  // scans - synthesized
 	DirGVR,  // dirs - file directory
 	PfGVR,   // portforwards - app state
 	SdGVR,   // screendumps - app state
 	BeGVR,   // benchmarks - app state
+	AliGVR,  // aliases - app configuration
+	HmGVR,   // helm - primary-only
 	HmhGVR,  // helm-history - drill into a helm release
+	RbacGVR, // synthesized rule drill-down
+	PolGVR,  // primary-only policy scan
+	UsrGVR,  // primary-only policy subject view
+	GrpGVR,  // primary-only policy subject view
 )
 
 // IsNestedGVR reports whether gvr is a synthesized / drill-down view
