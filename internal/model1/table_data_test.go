@@ -10,6 +10,7 @@ import (
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
@@ -77,8 +78,8 @@ func TestTableDataFilter_ContextSelector(t *testing.T) {
 	)
 
 	uu := map[string]struct {
-		filter   string
-		wantIDs  []string
+		filter  string
+		wantIDs []string
 	}{
 		"keep_only_ctxA": {filter: "ctx=ctxA", wantIDs: []string{"a", "c"}},
 		"keep_only_ctxB": {filter: "ctx=ctxB", wantIDs: []string{"b"}},
@@ -98,6 +99,37 @@ func TestTableDataFilter_ContextSelector(t *testing.T) {
 			assert.Equal(t, u.wantIDs, got)
 		})
 	}
+}
+
+func TestTableDataContextFilterRequiresSourceRows(t *testing.T) {
+	header := Header{HeaderColumn{Name: "NAME"}}
+	rows := NewRowEventsWithEvts(
+		RowEvent{Row: Row{ID: "a", Fields: Fields{"pod-a"}}},
+		RowEvent{Row: Row{ID: "b", Fields: Fields{"pod-b"}}},
+	)
+	td := NewTableDataWithRows(client.PodGVR, header, rows)
+
+	out := td.Filter(FilterOpts{Filter: "ctx=production"})
+	assert.Equal(t, 2, out.RowCount(), "single-context label selectors must not be consumed as source filters")
+}
+
+func TestTableDataContextFilterComposesWithToast(t *testing.T) {
+	header := Header{
+		HeaderColumn{Name: "NAME"},
+		HeaderColumn{Name: "VALID"},
+	}
+	rows := NewRowEventsWithEvts(
+		RowEvent{Row: Row{ID: "a", Source: "ctx-a", Fields: Fields{"pod-a", "DEGRADED"}}},
+		RowEvent{Row: Row{ID: "b", Source: "ctx-a", Fields: Fields{"pod-b", ""}}},
+		RowEvent{Row: Row{ID: "c", Source: "ctx-b", Fields: Fields{"pod-c", "DEGRADED"}}},
+	)
+	td := NewTableDataWithRows(client.PodGVR, header, rows)
+
+	out := td.Filter(FilterOpts{Filter: "ctx=ctx-a", Toast: true})
+	require.Equal(t, 1, out.RowCount())
+	row, ok := out.RowAt(0)
+	require.True(t, ok)
+	assert.Equal(t, "a", row.Row.ID)
 }
 
 func TestTableDataComputeSortCol(t *testing.T) {

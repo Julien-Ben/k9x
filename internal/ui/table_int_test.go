@@ -13,6 +13,7 @@ import (
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/model"
 	"github.com/derailed/k9s/internal/model1"
+	"github.com/derailed/tcell/v2"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -25,8 +26,8 @@ func TestShouldExcludeColumn_Context(t *testing.T) {
 		excl   bool
 		reason string
 	}{
-		"single mode hides CONTEXT": {multi: false, excl: true,
-			reason: "in single-context mode the column is irrelevant"},
+		"single mode preserves schema CONTEXT": {multi: false, excl: false,
+			reason: "without the wrapper, CONTEXT belongs to the resource schema"},
 		"multi mode shows CONTEXT": {multi: true, excl: false,
 			reason: "in multi-context mode the column is mandatory"},
 	}
@@ -72,6 +73,23 @@ func TestTableContextSortActionRequiresContextHeader(t *testing.T) {
 			assert.Equal(t, u.want, got)
 		})
 	}
+}
+
+func TestTableUpdatePreservesSingleContextShiftXBinding(t *testing.T) {
+	header := model1.Header{model1.HeaderColumn{Name: "NAME"}}
+	data := model1.NewTableDataWithRows(client.PodGVR, header, model1.NewRowEvents(0))
+	tbl := &Table{
+		SelectTable: &SelectTable{model: &multiCtxStubModel{data: data}},
+		actions:     NewKeyActions(),
+		cmdBuff:     model.NewFishBuff('/', model.FilterBuffer),
+	}
+	tbl.actions.Add(KeyShiftX, NewKeyAction("Custom", func(evt *tcell.EventKey) *tcell.EventKey { return evt }, true))
+
+	tbl.doUpdate(data)
+
+	action, ok := tbl.actions.Get(KeyShiftX)
+	assert.True(t, ok)
+	assert.Equal(t, "Custom", action.Description)
 }
 
 // multiCtxStubModel implements ui.Tabular with only what shouldExcludeColumn

@@ -13,7 +13,7 @@ import (
 var (
 	fuzzyRx = regexp.MustCompile(`\A-f\s?([\w-]+)\b`)
 	labelRx = regexp.MustCompile(`\A\-l`)
-	ctxRx   = regexp.MustCompile(`\A!?ctx=([\w.-]+)\z`)
+	ctxRx   = regexp.MustCompile(`\A!?ctx=(\S+)\z`)
 )
 
 // Helpers...

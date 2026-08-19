@@ -448,13 +448,15 @@ func (t *Table) doUpdate(data *model1.TableData) *model1.TableData {
 	} else {
 		t.actions.Delete(KeyShiftP)
 	}
-	if _, ok := data.Header().IndexOf("CONTEXT", true); t.GetModel().MultiContext() && ok {
-		t.actions.Add(
-			KeyShiftX,
-			NewKeyAction("Sort Context", t.SortColCmd("CONTEXT", true), true),
-		)
-	} else {
-		t.actions.Delete(KeyShiftX)
+	if t.GetModel().MultiContext() {
+		if _, ok := data.Header().IndexOf("CONTEXT", true); ok {
+			t.actions.Add(
+				KeyShiftX,
+				NewKeyAction("Sort Context", t.SortColCmd("CONTEXT", true), true),
+			)
+		} else {
+			t.actions.Delete(KeyShiftX)
+		}
 	}
 
 	oldSortCol := t.getSortCol()
@@ -473,7 +475,6 @@ func (t *Table) doUpdate(data *model1.TableData) *model1.TableData {
 func (t *Table) shouldExcludeColumn(h model1.HeaderColumn) bool {
 	return (h.Hide || (!t.wide && h.Wide)) ||
 		(h.Name == "NAMESPACE" && !t.GetModel().ClusterWide()) ||
-		(h.Name == "CONTEXT" && !t.GetModel().MultiContext()) ||
 		(h.MX && !t.hasMetrics) ||
 		(h.VS && vul.ImgScanner == nil)
 }

@@ -20,6 +20,7 @@ func TestIsContextSelector(t *testing.T) {
 		"empty":          {s: ""},
 		"plain":          {s: "ctx=kind-a", scope: "kind-a", ok: true},
 		"with-dots":      {s: "ctx=arn.aws.east-1", scope: "arn.aws.east-1", ok: true},
+		"eks-arn":        {s: "ctx=arn:aws:eks:eu-west-1:123456789012:cluster/dev", scope: "arn:aws:eks:eu-west-1:123456789012:cluster/dev", ok: true},
 		"inverse":        {s: "!ctx=kind-b", scope: "kind-b", inverse: true, ok: true},
 		"trailing-junk":  {s: "ctx=kind-a x"},
 		"no-equal":       {s: "ctx"},

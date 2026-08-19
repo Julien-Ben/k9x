@@ -156,10 +156,11 @@ func (t *TableData) Filter(f FilterOpts) *TableData {
 	if f.Toast {
 		td.rowEvents = t.filterToast()
 	}
-	// Context selector takes precedence over label selector — `ctx=NAME`
-	// would otherwise be misclassified as a label query by ToLabels.
-	if scope, inverse, ok := internal.IsContextSelector(f.Filter); ok {
-		td.rowEvents = t.contextFilter(scope, inverse)
+	// Context selector takes precedence over label selector only when rows
+	// actually carry source identities. In single-context mode `ctx=NAME`
+	// remains an ordinary Kubernetes label selector.
+	if scope, inverse, ok := internal.IsContextSelector(f.Filter); ok && td.hasSourceRows() {
+		td.rowEvents = td.contextFilter(scope, inverse)
 		return td
 	}
 	if f.Filter == "" || internal.IsLabelSelector(f.Filter) {
@@ -177,6 +178,15 @@ func (t *TableData) Filter(f FilterOpts) *TableData {
 	}
 
 	return td
+}
+
+func (t *TableData) hasSourceRows() bool {
+	found := false
+	t.rowEvents.Range(func(_ int, re RowEvent) bool {
+		found = re.Row.Source != ""
+		return !found
+	})
+	return found
 }
 
 func (t *TableData) rxFilter(q string, inverse bool) (*RowEvents, error) {
@@ -216,8 +226,7 @@ func (t *TableData) rxFilter(q string, inverse bool) (*RowEvents, error) {
 // contextFilter restricts rows to (or excludes them from when inverse=true)
 // the given kubeconfig context. Operates on Row.Source, which MultiFactory
 // stamps on every row from the SourceContextAnnotation. In single-context
-// mode every row has an empty Source and the filter returns nothing — that's
-// fine since the selector is documented as multi-context-only.
+// mode this path is not selected, leaving ctx=NAME available as a label query.
 func (t *TableData) contextFilter(scope string, inverse bool) *RowEvents {
 	rr := NewRowEvents(t.RowCount() / 2)
 	t.rowEvents.Range(func(_ int, re RowEvent) bool {
