@@ -686,26 +686,14 @@ func warnDuplicateClusters(contexts map[string]*clientcmdapi.Context, selected [
 }
 
 // initContextAPIClient builds an APIClient pinned to the named kubeconfig
-// context, cloning relevant flags from the base config (kubeconfig path,
-// timeout, impersonation). Returns an error if the context cannot connect.
+// context. Child contexts use their own kubeconfig identity and TLS settings;
+// primary-only credential, impersonation, and insecure flags are not copied.
 func initContextAPIClient(base *client.Config, ctxName string) (*client.APIClient, error) {
 	ct, err := base.GetContext(ctxName)
 	if err != nil {
 		return nil, err
 	}
-	flags := genericclioptions.NewConfigFlags(client.UsePersistentConfig)
-	name := ctxName
-	cluster := ct.Cluster
-	flags.Context = &name
-	flags.ClusterName = &cluster
-	flags.Namespace = base.Flags().Namespace
-	flags.Timeout = base.Flags().Timeout
-	flags.KubeConfig = base.Flags().KubeConfig
-	flags.Impersonate = base.Flags().Impersonate
-	flags.ImpersonateGroup = base.Flags().ImpersonateGroup
-	flags.ImpersonateUID = base.Flags().ImpersonateUID
-	flags.Insecure = base.Flags().Insecure
-	flags.BearerToken = base.Flags().BearerToken
+	flags := contextConfigFlags(base, ctxName, ct)
 
 	cfg := client.NewConfig(flags)
 	apiClient, err := client.InitConnection(cfg, slog.Default())
@@ -716,6 +704,18 @@ func initContextAPIClient(base *client.Config, ctxName string) (*client.APIClien
 		return apiClient, fmt.Errorf("connectivity check failed")
 	}
 	return apiClient, nil
+}
+
+func contextConfigFlags(base *client.Config, ctxName string, ct *clientcmdapi.Context) *genericclioptions.ConfigFlags {
+	flags := genericclioptions.NewConfigFlags(client.UsePersistentConfig)
+	name := ctxName
+	cluster := ct.Cluster
+	flags.Context = &name
+	flags.ClusterName = &cluster
+	flags.Namespace = base.Flags().Namespace
+	flags.Timeout = base.Flags().Timeout
+	flags.KubeConfig = base.Flags().KubeConfig
+	return flags
 }
 
 // BailOut exists the application.

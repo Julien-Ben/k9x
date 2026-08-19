@@ -6,8 +6,10 @@ package view
 import (
 	"testing"
 
+	"github.com/derailed/k9s/internal/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
@@ -41,4 +43,35 @@ func TestSelectMultiContexts(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestContextConfigFlagsDoNotCopyPrimaryCredentials(t *testing.T) {
+	flags := genericclioptions.NewConfigFlags(false)
+	kubeconfig, namespace, timeout := "config", "team-a", "5s"
+	token, impersonate, uid, insecure := "primary-token", "primary-user", "primary-uid", true
+	groups := []string{"primary-group"}
+	flags.KubeConfig = &kubeconfig
+	flags.Namespace = &namespace
+	flags.Timeout = &timeout
+	flags.BearerToken = &token
+	flags.Impersonate = &impersonate
+	flags.ImpersonateUID = &uid
+	flags.ImpersonateGroup = &groups
+	flags.Insecure = &insecure
+	base := client.NewConfig(flags)
+
+	child := contextConfigFlags(base, "ctx-b", &clientcmdapi.Context{Cluster: "cluster-b"})
+
+	require.NotNil(t, child.Context)
+	assert.Equal(t, "ctx-b", *child.Context)
+	require.NotNil(t, child.ClusterName)
+	assert.Equal(t, "cluster-b", *child.ClusterName)
+	assert.Same(t, flags.KubeConfig, child.KubeConfig)
+	assert.Same(t, flags.Namespace, child.Namespace)
+	assert.Same(t, flags.Timeout, child.Timeout)
+	assert.True(t, child.BearerToken == nil || *child.BearerToken == "")
+	assert.True(t, child.Impersonate == nil || *child.Impersonate == "")
+	assert.True(t, child.ImpersonateUID == nil || *child.ImpersonateUID == "")
+	assert.True(t, child.ImpersonateGroup == nil || len(*child.ImpersonateGroup) == 0)
+	assert.False(t, child.Insecure != nil && *child.Insecure)
 }
