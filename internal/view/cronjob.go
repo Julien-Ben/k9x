@@ -20,7 +20,6 @@ import (
 	"github.com/derailed/tview"
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -48,7 +47,7 @@ func NewCronJob(gvr *client.GVR) ResourceViewer {
 
 func (*CronJob) showJobs(app *App, _ ui.Tabular, gvr *client.GVR, fqn string, sel RowIdent) {
 	slog.Debug("Showing Jobs", slogs.GVR, gvr, slogs.FQN, fqn)
-	o, err := app.factory.Get(gvr, fqn, true, labels.Everything())
+	o, err := getScopedResource(app.factory, scopedCtx(context.Background(), sel), gvr, fqn)
 	if err != nil {
 		app.Flash().Err(err)
 		return
@@ -128,12 +127,12 @@ func (c *CronJob) triggerCmd(evt *tcell.EventKey) *tcell.EventKey {
 
 func (c *CronJob) toggleSuspendCmd(evt *tcell.EventKey) *tcell.EventKey {
 	table := c.GetTable()
-	refs := table.GetSelectedRefs()
-
-	if len(refs) == 0 || refs[0].ID == "" {
+	row := table.GetSelectedRowRef()
+	if row == nil || row.ID == "" {
 		return evt
 	}
-	if refuseUnscopedSelection(c.App(), refs[:1]) {
+	sel := row.Ident()
+	if refuseUnscopedSelection(c.App(), []model1.RowIdent{sel}) {
 		return nil
 	}
 
@@ -147,7 +146,7 @@ func (c *CronJob) toggleSuspendCmd(evt *tcell.EventKey) *tcell.EventKey {
 	c.Stop()
 	defer c.Start()
 
-	c.showSuspendDialog(cell, refs[0])
+	c.showSuspendDialog(cell, sel)
 
 	return nil
 }

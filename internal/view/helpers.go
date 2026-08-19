@@ -27,6 +27,7 @@ import (
 	"github.com/sahilm/fuzzy"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
@@ -136,6 +137,15 @@ func scopedCtx(ctx context.Context, ref model1.RowIdent) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, internal.KeyScopeContext, ref.Source)
+}
+
+// getScopedResource fetches a resource from the selected row's source when
+// the factory supports multi-context routing, with the single-context fallback.
+func getScopedResource(factory dao.Factory, ctx context.Context, gvr *client.GVR, path string) (runtime.Object, error) {
+	if contextual, ok := factory.(dao.ContextualFactory); ok {
+		return contextual.GetWithContext(ctx, gvr, path, true, labels.Everything())
+	}
+	return factory.Get(gvr, path, true, labels.Everything())
 }
 
 const missingSourceContextMsg = "cannot route selection without source context"
