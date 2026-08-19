@@ -217,8 +217,8 @@ func (s *StatefulSet) Scan(ctx context.Context, gvr *client.GVR, fqn string, wai
 }
 
 // GetPodSpec returns a pod spec given a resource.
-func (s *StatefulSet) GetPodSpec(path string) (*v1.PodSpec, error) {
-	sts, err := s.getStatefulSet(path)
+func (s *StatefulSet) GetPodSpec(ctx context.Context, path string) (*v1.PodSpec, error) {
+	sts, err := s.GetInstanceWithContext(ctx, s.getFactory(), path)
 	if err != nil {
 		return nil, err
 	}

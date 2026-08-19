@@ -238,7 +238,7 @@ type Logger interface {
 // ContainsPodSpec represents a resource with a pod template.
 type ContainsPodSpec interface {
 	// GetPodSpec returns a podspec for the resource.
-	GetPodSpec(path string) (*v1.PodSpec, error)
+	GetPodSpec(ctx context.Context, path string) (*v1.PodSpec, error)
 
 	// SetImages sets container image.
 	SetImages(ctx context.Context, path string, imageSpecs ImageSpecs) error

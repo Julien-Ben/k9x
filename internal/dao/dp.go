@@ -194,8 +194,8 @@ func (d *Deployment) Scan(ctx context.Context, gvr *client.GVR, fqn string, wait
 }
 
 // GetPodSpec returns a pod spec given a resource.
-func (d *Deployment) GetPodSpec(path string) (*v1.PodSpec, error) {
-	dp, err := d.GetInstance(path)
+func (d *Deployment) GetPodSpec(ctx context.Context, path string) (*v1.PodSpec, error) {
+	dp, err := d.GetInstanceWithContext(ctx, path)
 	if err != nil {
 		return nil, err
 	}

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/derailed/k9s/internal/dao"
+	"github.com/derailed/k9s/internal/model1"
 	"github.com/derailed/k9s/internal/slogs"
 	"github.com/derailed/k9s/internal/ui"
 	"github.com/derailed/tcell/v2"
@@ -65,27 +66,27 @@ func (s *ImageExtender) bindKeys(aa *ui.KeyActions) {
 }
 
 func (s *ImageExtender) setImageCmd(*tcell.EventKey) *tcell.EventKey {
-	path := s.GetTable().GetSelectedItem()
-	if path == "" {
+	row := s.GetTable().GetSelectedRowRef()
+	if row == nil || row.ID == "" {
 		return nil
 	}
 
 	s.Stop()
 	defer s.Start()
-	if err := s.showImageDialog(path); err != nil {
+	if err := s.showImageDialog(row.Ident()); err != nil {
 		s.App().Flash().Err(err)
 	}
 
 	return nil
 }
 
-func (s *ImageExtender) showImageDialog(path string) error {
-	form, err := s.makeSetImageForm(path)
+func (s *ImageExtender) showImageDialog(ref model1.RowIdent) error {
+	form, err := s.makeSetImageForm(scopedCtx(context.Background(), ref), ref.ID)
 	if err != nil {
 		return err
 	}
 	confirm := tview.NewModalForm("<Set image>", form)
-	confirm.SetText(fmt.Sprintf("Set image %s %s", s.GVR(), path))
+	confirm.SetText(fmt.Sprintf("Set image %s %s", s.GVR(), ref.ID))
 	confirm.SetDoneFunc(func(int, string) {
 		s.dismissDialog()
 	})
@@ -95,8 +96,8 @@ func (s *ImageExtender) showImageDialog(path string) error {
 	return nil
 }
 
-func (s *ImageExtender) makeSetImageForm(fqn string) (*tview.Form, error) {
-	podSpec, err := s.getPodSpec(fqn)
+func (s *ImageExtender) makeSetImageForm(ctx context.Context, fqn string) (*tview.Form, error) {
+	podSpec, err := s.getPodSpec(ctx, fqn)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +128,7 @@ func (s *ImageExtender) makeSetImageForm(fqn string) (*tview.Form, error) {
 					imageSpecsModified = append(imageSpecsModified, v.imageSpec())
 				}
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), s.App().Conn().Config().CallTimeout())
+			ctx, cancel := context.WithTimeout(ctx, s.App().Conn().Config().CallTimeout())
 			defer cancel()
 			if err := s.setImages(ctx, fqn, imageSpecsModified); err != nil {
 				slog.Error("Unable to set image name",
@@ -163,7 +164,7 @@ func (s *ImageExtender) dismissDialog() {
 	s.App().Content.RemovePage(imageKey)
 }
 
-func (s *ImageExtender) getPodSpec(path string) (*corev1.PodSpec, error) {
+func (s *ImageExtender) getPodSpec(ctx context.Context, path string) (*corev1.PodSpec, error) {
 	res, err := dao.AccessorFor(s.App().factory, s.GVR())
 	if err != nil {
 		return nil, err
@@ -173,7 +174,7 @@ func (s *ImageExtender) getPodSpec(path string) (*corev1.PodSpec, error) {
 		return nil, fmt.Errorf("expecting a ContainsPodSpec for %q but got %T", s.GVR(), res)
 	}
 
-	return resourceWPodSpec.GetPodSpec(path)
+	return resourceWPodSpec.GetPodSpec(ctx, path)
 }
 
 func (s *ImageExtender) setImages(ctx context.Context, path string, imageSpecs dao.ImageSpecs) error {

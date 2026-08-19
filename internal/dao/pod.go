@@ -197,7 +197,12 @@ func (*Pod) Pod(fqn string) (string, error) {
 
 // GetInstance returns a pod instance.
 func (p *Pod) GetInstance(fqn string) (*v1.Pod, error) {
-	o, err := p.getFactory().Get(p.gvr, fqn, true, labels.Everything())
+	return p.GetInstanceWithContext(context.Background(), fqn)
+}
+
+// GetInstanceWithContext returns a pod instance from the context selected on ctx.
+func (p *Pod) GetInstanceWithContext(ctx context.Context, fqn string) (*v1.Pod, error) {
+	o, err := getRes(p.getFactory(), ctx, p.gvr, fqn)
 	if err != nil {
 		return nil, err
 	}
@@ -544,8 +549,8 @@ func MetaFQN(m *metav1.ObjectMeta) string {
 }
 
 // GetPodSpec returns a pod spec given a resource.
-func (p *Pod) GetPodSpec(path string) (*v1.PodSpec, error) {
-	pod, err := p.GetInstance(path)
+func (p *Pod) GetPodSpec(ctx context.Context, path string) (*v1.PodSpec, error) {
+	pod, err := p.GetInstanceWithContext(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -565,7 +570,7 @@ func (p *Pod) SetImages(ctx context.Context, path string, imageSpecs ImageSpecs)
 	if !auth {
 		return fmt.Errorf("user is not authorized to patch a deployment")
 	}
-	manager, isManaged, err := p.isControlled(path)
+	manager, isManaged, err := p.isControlled(ctx, path)
 	if err != nil {
 		return err
 	}
@@ -591,8 +596,8 @@ func (p *Pod) SetImages(ctx context.Context, path string, imageSpecs ImageSpecs)
 	return err
 }
 
-func (p *Pod) isControlled(path string) (fqn string, ok bool, err error) {
-	pod, err := p.GetInstance(path)
+func (p *Pod) isControlled(ctx context.Context, path string) (fqn string, ok bool, err error) {
+	pod, err := p.GetInstanceWithContext(ctx, path)
 	if err != nil {
 		return "", false, err
 	}

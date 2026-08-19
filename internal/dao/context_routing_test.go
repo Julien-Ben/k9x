@@ -67,6 +67,26 @@ func TestNodeDrainRoutesViaScopeContext(t *testing.T) {
 	assert.Equal(t, 1, f.conn.dialCalls)
 }
 
+func TestPodImageReadsRouteViaScopeContext(t *testing.T) {
+	obj := routedPodObject(t, true)
+	f := newScopedRoutingFactory(t, obj)
+	var pod dao.Pod
+	pod.Init(f, client.PodGVR)
+	ctx := scopedRoutingCtx("ctx-b")
+
+	spec, err := pod.GetPodSpec(ctx, "default/pod-a")
+	require.NoError(t, err)
+	require.Len(t, spec.Containers, 1)
+	assert.Equal(t, "ctx-b", f.getWithContextScopes[0])
+	assert.Zero(t, f.plainGetCalls)
+
+	err = pod.SetImages(ctx, "default/pod-a", nil)
+	require.EqualError(t, err, "unable to set image. This pod is managed by ReplicaSet/owner-a. Please set the image on the controller")
+	assert.Equal(t, []string{"ctx-b", "ctx-b"}, f.getWithContextScopes)
+	assert.Equal(t, []string{"ctx-b"}, f.clientForScopes)
+	assert.Zero(t, f.plainGetCalls)
+}
+
 type scopedRoutingConn struct {
 	conn
 
@@ -190,6 +210,30 @@ func nodeObject(t *testing.T, unschedulable bool) runtime.Object {
 			Unschedulable: unschedulable,
 		},
 	})
+}
+
+func routedPodObject(t *testing.T, controlled bool) runtime.Object {
+	t.Helper()
+	pod := &v1.Pod{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod-a",
+			Namespace: "default",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{{Name: "main", Image: "busybox"}},
+		},
+	}
+	if controlled {
+		controller := true
+		pod.OwnerReferences = []metav1.OwnerReference{{
+			APIVersion: "apps/v1",
+			Kind:       "ReplicaSet",
+			Name:       "owner-a",
+			Controller: &controller,
+		}}
+	}
+	return asUnstructured(t, pod)
 }
 
 func asUnstructured(t *testing.T, obj runtime.Object) runtime.Object {

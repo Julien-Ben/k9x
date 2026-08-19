@@ -235,8 +235,8 @@ func (d *DaemonSet) Scan(ctx context.Context, gvr *client.GVR, fqn string, wait 
 }
 
 // GetPodSpec returns a pod spec given a resource.
-func (d *DaemonSet) GetPodSpec(path string) (*v1.PodSpec, error) {
-	ds, err := d.GetInstance(path)
+func (d *DaemonSet) GetPodSpec(ctx context.Context, path string) (*v1.PodSpec, error) {
+	ds, err := d.GetInstanceWithContext(ctx, path)
 	if err != nil {
 		return nil, err
 	}
