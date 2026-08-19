@@ -20,6 +20,7 @@ import (
 	"github.com/derailed/k9s/internal/model1"
 	"github.com/derailed/k9s/internal/render"
 	"github.com/derailed/k9s/internal/ui"
+	"github.com/derailed/tcell/v2"
 	"github.com/derailed/tview"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -169,6 +170,32 @@ func TestTableViewSort(t *testing.T) {
 	}
 }
 
+func TestBrowserEnterPassesSelectedRowIdentSource(t *testing.T) {
+	b := &Browser{Table: NewTable(client.PodGVR)}
+	require.NoError(t, b.GetTable().Init(makeContext(t)))
+
+	m := new(duplicateSourceModel)
+	b.GetTable().SetModel(m)
+	data := m.Peek()
+	cdata := b.GetTable().Update(data, false)
+	b.GetTable().UpdateUI(cdata, data)
+
+	selectRowWithSource(t, b.GetTable(), "ctx-b")
+
+	var (
+		gotPath string
+		gotSel  RowIdent
+	)
+	b.GetTable().SetEnterFn(func(_ *App, _ ui.Tabular, _ *client.GVR, path string, sel RowIdent) {
+		gotPath = path
+		gotSel = sel
+	})
+
+	assert.Nil(t, b.enterCmd(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone)))
+	assert.Equal(t, "default/p1", gotPath)
+	assert.Equal(t, RowIdent{ID: "default/p1", Source: "ctx-b"}, gotSel)
+}
+
 // ----------------------------------------------------------------------------
 // Helpers...
 
@@ -209,6 +236,17 @@ func (*mockTableModel) MultiContext() bool           { return false }
 func (*mockTableModel) SetMultiContext(bool)         {}
 func (*mockTableModel) SetRefreshRate(time.Duration) {}
 
+type duplicateSourceModel struct {
+	mockTableModel
+}
+
+func (*duplicateSourceModel) RowCount() int                { return 2 }
+func (*duplicateSourceModel) MultiContext() bool           { return true }
+func (*duplicateSourceModel) ClusterWide() bool            { return true }
+func (*duplicateSourceModel) Peek() *model1.TableData      { return makeDuplicateSourceTableData() }
+func (*duplicateSourceModel) GetNamespace() string         { return client.NamespaceAll }
+func (*duplicateSourceModel) SetRefreshRate(time.Duration) {}
+
 func makeTableData() *model1.TableData {
 	return model1.NewTableDataWithRows(
 		client.NewGVR("test"),
@@ -242,6 +280,49 @@ func makeTableData() *model1.TableData {
 			},
 		),
 	)
+}
+
+func makeDuplicateSourceTableData() *model1.TableData {
+	return model1.NewTableDataWithRows(
+		client.PodGVR,
+		model1.Header{
+			model1.HeaderColumn{Name: "NAMESPACE"},
+			model1.HeaderColumn{Name: "NAME"},
+			model1.HeaderColumn{Name: "AGE", Attrs: model1.Attrs{Time: true}},
+		},
+		model1.NewRowEventsWithEvts(
+			model1.RowEvent{
+				Row: model1.Row{
+					ID:     "default/p1",
+					Source: "ctx-a",
+					Fields: model1.Fields{"default", "p1", "1m"},
+				},
+			},
+			model1.RowEvent{
+				Row: model1.Row{
+					ID:     "default/p1",
+					Source: "ctx-b",
+					Fields: model1.Fields{"default", "p1", "1m"},
+				},
+			},
+		),
+	)
+}
+
+func selectRowWithSource(t *testing.T, v *Table, source string) {
+	t.Helper()
+
+	for r := 1; r < v.GetRowCount(); r++ {
+		cell := v.GetCell(r, 0)
+		require.NotNil(t, cell)
+		row, ok := cell.GetReference().(model1.Row)
+		require.True(t, ok)
+		if row.Source == source {
+			v.Select(r, 0)
+			return
+		}
+	}
+	require.Failf(t, "missing row source", "source %q not found", source)
 }
 
 func makeContext(t *testing.T) context.Context {
