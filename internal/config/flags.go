@@ -24,6 +24,7 @@ type Flags struct {
 	Command       *string
 	AllNamespaces *bool
 	MultiContext  *bool
+	Contexts      *[]string
 	ReadOnly      *bool
 	Write         *bool
 	Crumbsless    *bool
@@ -43,6 +44,7 @@ func NewFlags() *Flags {
 		Command:       strPtr(DefaultCommand),
 		AllNamespaces: boolPtr(false),
 		MultiContext:  boolPtr(false),
+		Contexts:      strSlicePtr(nil),
 		ReadOnly:      boolPtr(false),
 		Write:         boolPtr(false),
 		Crumbsless:    boolPtr(false),
@@ -62,4 +64,8 @@ func float32Ptr(f float32) *float32 {
 
 func strPtr(s string) *string {
 	return &s
+}
+
+func strSlicePtr(ss []string) *[]string {
+	return &ss
 }

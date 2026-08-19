@@ -52,6 +52,7 @@ type K9s struct {
 	Thresholds          Threshold  `json:"thresholds" yaml:"thresholds"`
 	DefaultView         string     `json:"defaultView" yaml:"defaultView"`
 	MultiContextMode    bool       `json:"-" yaml:"-"`
+	MultiContextNames   []string   `json:"-" yaml:"-"`
 	manualRefreshRate   float32
 	manualReadOnly      *bool
 	manualCommand       *string

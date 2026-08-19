@@ -252,6 +252,12 @@ func initK9sFlags() {
 		false,
 		"EXPERIMENTAL: Launch K9s aggregating resources across kubeconfig contexts",
 	)
+	rootCmd.Flags().StringSliceVar(
+		k9sFlags.Contexts,
+		"contexts",
+		nil,
+		"EXPERIMENTAL: Kubeconfig contexts to aggregate (current context is always included; use 'all' for every context)",
+	)
 	rootCmd.Flags().StringVarP(
 		k9sFlags.Command,
 		"command", "c",

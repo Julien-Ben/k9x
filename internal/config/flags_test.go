@@ -23,6 +23,7 @@ func TestNewFlags(t *testing.T) {
 	assert.False(t, *f.Headless)
 	assert.False(t, *f.Logoless)
 	assert.False(t, *f.AllNamespaces)
+	assert.Empty(t, *f.Contexts)
 	assert.False(t, *f.ReadOnly)
 	assert.False(t, *f.Write)
 	assert.False(t, *f.Crumbsless)

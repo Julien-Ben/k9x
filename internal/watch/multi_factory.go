@@ -98,6 +98,7 @@ type MultiFactory struct {
 	// health tracks the rolling per-context health state machine that drives
 	// the quarantine banner. Updated at the end of each listImpl tick.
 	health                  map[string]*childHealthState
+	startupUnavailable      map[string]bool
 	pendingTransitions      []ContextHealthTransition
 	quarantineProbeInterval time.Duration
 }
@@ -123,6 +124,7 @@ func NewMultiFactory(primary string, children map[string]*Factory) (*MultiFactor
 		actualDisabled:          make(map[string]bool),
 		flashedDivergences:      make(map[string]struct{}),
 		health:                  initHealth(cc),
+		startupUnavailable:      make(map[string]bool),
 		quarantineProbeInterval: defaultQuarantineProbeInterval,
 	}, nil
 }
@@ -142,6 +144,7 @@ func newMultiFactoryForTesting(primary string, children map[string]childFactory)
 		actualDisabled:          make(map[string]bool),
 		flashedDivergences:      make(map[string]struct{}),
 		health:                  initHealth(children),
+		startupUnavailable:      make(map[string]bool),
 		quarantineProbeInterval: defaultQuarantineProbeInterval,
 	}, nil
 }
@@ -185,6 +188,37 @@ func (m *MultiFactory) SetContextToggleDelay(d time.Duration) {
 	if d > 0 {
 		m.contextToggleDelay = d
 	}
+}
+
+// MarkContextUnavailable seeds a child as quarantined when its startup
+// connectivity check fails. The child remains in the runtime set and will be
+// retried by the normal quarantine probe loop.
+func (m *MultiFactory) MarkContextUnavailable(name string, err error) error {
+	m.mx.Lock()
+	defer m.mx.Unlock()
+	h, ok := m.health[name]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrUnknownContext, name)
+	}
+	if err == nil {
+		err = errors.New("context unavailable at startup")
+	}
+	previous := h.state
+	h.state = HealthQuarantined
+	h.fails = quarantineThreshold
+	h.lastErr = err
+	h.lastProbeAt = time.Now()
+	m.startupUnavailable[name] = true
+	if previous != HealthQuarantined {
+		m.pendingTransitions = append(m.pendingTransitions, ContextHealthTransition{
+			Context: name,
+			From:    previous,
+			To:      HealthQuarantined,
+			Err:     err,
+			At:      h.lastProbeAt,
+		})
+	}
+	return nil
 }
 
 // ToggleContext flips the desired runtime fan-out state for a child context.
@@ -630,9 +664,10 @@ func (m *MultiFactory) listImpl(ctx context.Context, gvr *client.GVR, ns string,
 	m.mx.RLock()
 
 	type childResult struct {
-		ctxName string
-		objs    []runtime.Object
-		err     error
+		ctxName     string
+		objs        []runtime.Object
+		err         error
+		reconnected bool
 	}
 
 	// Iterate children in a deterministic order so the merged row sequence is
@@ -679,8 +714,10 @@ func (m *MultiFactory) listImpl(ctx context.Context, gvr *client.GVR, ns string,
 		attemptable = append(attemptable, n)
 	}
 	snapshot := make(map[string]childFactory, len(attemptable))
+	reconnect := make(map[string]bool, len(attemptable))
 	for _, n := range attemptable {
 		snapshot[n] = m.children[n]
+		reconnect[n] = m.startupUnavailable[n]
 	}
 	m.mx.Unlock()
 	// Replace ctxNames with the attempt list. Skipped children stay in
@@ -707,19 +744,24 @@ func (m *MultiFactory) listImpl(ctx context.Context, gvr *client.GVR, ns string,
 			// trades a possible goroutine leak under sustained outage for
 			// UI responsiveness, which is the right call for a TUI.
 			type inner struct {
-				objs []runtime.Object
-				err  error
+				objs        []runtime.Object
+				err         error
+				reconnected bool
 			}
 			ch := make(chan inner, 1)
 			go func() {
+				if reconnect[name] && !c.Client().CheckConnectivity() {
+					ch <- inner{err: errors.New("startup connectivity check still failing")}
+					return
+				}
 				oo, err := c.List(gvr, ns, wait, sel)
-				ch <- inner{objs: oo, err: err}
+				ch <- inner{objs: oo, err: err, reconnected: reconnect[name]}
 			}()
 			var r childResult
 			r.ctxName = name
 			select {
 			case res := <-ch:
-				r.objs, r.err = res.objs, res.err
+				r.objs, r.err, r.reconnected = res.objs, res.err, res.reconnected
 			case <-time.After(timeout):
 				r.err = fmt.Errorf("list timed out after %s", timeout)
 			}
@@ -777,6 +819,11 @@ func (m *MultiFactory) listImpl(ctx context.Context, gvr *client.GVR, ns string,
 	m.mx.Lock()
 	m.lastTickErrors = errs
 	m.lastTickDivergences = divergences
+	for _, result := range results {
+		if result.reconnected {
+			delete(m.startupUnavailable, result.ctxName)
+		}
+	}
 	// Drive the per-context health state machine off this tick's outcomes.
 	// Divergences (IsNotFound) count toward health: that cluster IS up, it
 	// just doesn't have this GVR.
@@ -950,7 +997,6 @@ func (m *MultiFactory) Start(ns string) {
 		m.mx.Lock()
 		if m.lifecycleGeneration == generation {
 			delete(m.actualDisabled, ctxName)
-			m.resetHealthLocked(ctxName)
 		}
 		m.mx.Unlock()
 	}

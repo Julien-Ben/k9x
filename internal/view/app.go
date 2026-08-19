@@ -31,6 +31,7 @@ import (
 	"github.com/derailed/tcell/v2"
 	"github.com/derailed/tview"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 // ExitStatus indicates UI exit conditions.
@@ -577,11 +578,9 @@ func (a *App) initFactory(ns string) {
 	a.factory.Start(ns)
 }
 
-// buildMultiFactory enumerates every kubeconfig context, builds one APIClient
-// and one watch.Factory per context, and returns a MultiFactory that wraps
-// them all. Any context that fails to initialize causes the function to
-// return an error — k9s refuses to launch in multi-context mode if any
-// context is unreachable (decision Q1 from the demo plan).
+// buildMultiFactory builds the startup-selected context set. The current
+// context is always present as the primary anchor. Unreachable children start
+// quarantined so one bad endpoint cannot prevent the UI from launching.
 func (a *App) buildMultiFactory() (*watch.MultiFactory, error) {
 	primaryConn := a.Conn()
 	contexts, err := primaryConn.Config().Contexts()
@@ -592,9 +591,15 @@ func (a *App) buildMultiFactory() (*watch.MultiFactory, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolving primary context: %w", err)
 	}
+	selected, err := selectMultiContexts(contexts, primaryCtx, a.Config.K9s.MultiContextNames)
+	if err != nil {
+		return nil, err
+	}
+	warnDuplicateClusters(contexts, selected)
 
-	children := make(map[string]*watch.Factory, len(contexts))
-	for ctxName := range contexts {
+	children := make(map[string]*watch.Factory, len(selected))
+	startupErrs := make(map[string]error)
+	for _, ctxName := range selected {
 		var apiClient *client.APIClient
 		if ctxName == primaryCtx {
 			// Reuse the already-initialized primary connection. The cast is
@@ -605,16 +610,81 @@ func (a *App) buildMultiFactory() (*watch.MultiFactory, error) {
 			}
 			apiClient = ac
 		} else {
-			ac, err := initContextAPIClient(primaryConn.Config(), ctxName)
-			if err != nil {
-				return nil, fmt.Errorf("context %q: %w", ctxName, err)
+			ac, initErr := initContextAPIClient(primaryConn.Config(), ctxName)
+			if ac == nil {
+				return nil, fmt.Errorf("context %q: %w", ctxName, initErr)
+			}
+			if initErr != nil {
+				startupErrs[ctxName] = initErr
 			}
 			apiClient = ac
 		}
 		children[ctxName] = watch.NewFactory(apiClient)
 	}
 
-	return watch.NewMultiFactory(primaryCtx, children)
+	mf, err := watch.NewMultiFactory(primaryCtx, children)
+	if err != nil {
+		return nil, err
+	}
+	for name, initErr := range startupErrs {
+		if err := mf.MarkContextUnavailable(name, initErr); err != nil {
+			return nil, err
+		}
+	}
+	return mf, nil
+}
+
+func selectMultiContexts(contexts map[string]*clientcmdapi.Context, primary string, requested []string) ([]string, error) {
+	selected := make(map[string]struct{}, len(contexts))
+	all := len(requested) == 0
+	for _, name := range requested {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if name == "all" {
+			all = true
+			break
+		}
+		if _, ok := contexts[name]; !ok {
+			return nil, fmt.Errorf("requested context %q not found in kubeconfig", name)
+		}
+		selected[name] = struct{}{}
+	}
+	if all {
+		for name := range contexts {
+			selected[name] = struct{}{}
+		}
+	}
+	if _, ok := contexts[primary]; !ok {
+		return nil, fmt.Errorf("primary context %q not found in kubeconfig", primary)
+	}
+	selected[primary] = struct{}{}
+	names := make([]string, 0, len(selected))
+	for name := range selected {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+func warnDuplicateClusters(contexts map[string]*clientcmdapi.Context, selected []string) {
+	byCluster := make(map[string][]string)
+	for _, name := range selected {
+		if ctx := contexts[name]; ctx != nil && ctx.Cluster != "" {
+			byCluster[ctx.Cluster] = append(byCluster[ctx.Cluster], name)
+		}
+	}
+	for cluster, names := range byCluster {
+		if len(names) < 2 {
+			continue
+		}
+		sort.Strings(names)
+		slog.Warn("Multiple selected contexts target the same cluster",
+			slogs.Cluster, cluster,
+			"contexts", strings.Join(names, ","),
+		)
+	}
 }
 
 // initContextAPIClient builds an APIClient pinned to the named kubeconfig
@@ -642,10 +712,10 @@ func initContextAPIClient(base *client.Config, ctxName string) (*client.APIClien
 	cfg := client.NewConfig(flags)
 	apiClient, err := client.InitConnection(cfg, slog.Default())
 	if err != nil {
-		return nil, err
+		return apiClient, err
 	}
 	if !apiClient.CheckConnectivity() || !apiClient.ConnectionOK() {
-		return nil, fmt.Errorf("connectivity check failed")
+		return apiClient, fmt.Errorf("connectivity check failed")
 	}
 	return apiClient, nil
 }

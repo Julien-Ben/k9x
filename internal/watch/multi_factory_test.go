@@ -843,6 +843,45 @@ func TestMultiFactory_Contexts(t *testing.T) {
 	assert.Equal(t, []string{"ctxA", "ctxB", "ctxC"}, mf.Contexts())
 }
 
+func TestMultiFactory_MarkContextUnavailableSurvivesStart(t *testing.T) {
+	childB := &fakeChild{}
+	mf, err := newMultiFactoryForTesting("ctxA", map[string]childFactory{
+		"ctxA": &fakeChild{},
+		"ctxB": childB,
+	})
+	require.NoError(t, err)
+
+	startupErr := errors.New("connection refused")
+	require.NoError(t, mf.MarkContextUnavailable("ctxB", startupErr))
+	mf.Start("default")
+
+	assert.Equal(t, HealthQuarantined, mf.HealthSnapshot()["ctxB"])
+	require.Len(t, mf.NewHealthTransitions(), 1)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&childB.startCalls))
+}
+
+func TestMultiFactory_StartupUnavailableRecoversOnProbe(t *testing.T) {
+	connB := &stubConn{reconnect: true}
+	childB := &fakeChild{
+		conn:       connB,
+		listResult: []runtime.Object{newUnstructuredPod("default", "p-b")},
+	}
+	mf, err := newMultiFactoryForTesting("ctxA", map[string]childFactory{
+		"ctxA": &fakeChild{listResult: []runtime.Object{newUnstructuredPod("default", "p-a")}},
+		"ctxB": childB,
+	})
+	require.NoError(t, err)
+	mf.SetQuarantineProbeInterval(time.Millisecond)
+	require.NoError(t, mf.MarkContextUnavailable("ctxB", errors.New("offline")))
+	time.Sleep(5 * time.Millisecond)
+
+	merged, err := mf.List(client.PodGVR, "default", false, labels.Everything())
+	require.NoError(t, err)
+	require.Len(t, merged, 2)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&connB.connectivityChecks))
+	assert.Equal(t, HealthHealthy, mf.HealthSnapshot()["ctxB"])
+}
+
 // TestMultiFactoryClientFor_RoutesByScope asserts ClientFor returns the
 // matching child's connection when KeyScopeContext is set, and falls back to
 // the primary otherwise. This is the routing hop DAO mutations dispatch
@@ -935,9 +974,11 @@ func (f *fakeChild) Client() client.Connection { return f.conn }
 // any unintended call).
 type stubConn struct {
 	client.Connection
-	name        string //nolint:unused // identifier preserved for debug printouts
-	hasMetrics  bool
-	metricsStub bool
+	name               string //nolint:unused // identifier preserved for debug printouts
+	hasMetrics         bool
+	metricsStub        bool
+	reconnect          bool
+	connectivityChecks int32
 }
 
 func (s *stubConn) HasMetrics() bool {
@@ -946,6 +987,11 @@ func (s *stubConn) HasMetrics() bool {
 	}
 	// Fall through to embedded nil → panic, preserving original semantics.
 	return s.Connection.HasMetrics()
+}
+
+func (s *stubConn) CheckConnectivity() bool {
+	atomic.AddInt32(&s.connectivityChecks, 1)
+	return s.reconnect
 }
 func (f *fakeChild) Get(*client.GVR, string, bool, labels.Selector) (runtime.Object, error) {
 	if f.onGet != nil {
