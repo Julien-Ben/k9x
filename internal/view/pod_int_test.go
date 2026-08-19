@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/derailed/k9s/internal/client"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
@@ -28,7 +29,7 @@ func TestComputeShellArgs(t *testing.T) {
 			cfg: &genericclioptions.ConfigFlags{
 				KubeConfig: newStr("coolConfig"),
 			},
-			e: "exec -it -n fred blee --kubeconfig coolConfig -c c1 -- sh -c " + shellCheck,
+			e: "exec -it -n fred blee -c c1 -- sh -c " + shellCheck,
 		},
 
 		"no-config": {
@@ -68,7 +69,7 @@ func TestComputeShellArgs(t *testing.T) {
 				Context:     newStr("coolContext"),
 				BearerToken: newStr("coolToken"),
 			},
-			e: "exec -it -n fred blee --kubeconfig coolConfig --context coolContext --token coolToken -c c1 -- cmd /c " + winShellCheck,
+			e: "exec -it -n fred blee --token coolToken -c c1 -- cmd /c " + winShellCheck,
 		},
 	}
 
@@ -79,4 +80,23 @@ func TestComputeShellArgs(t *testing.T) {
 			assert.Equal(t, u.e, strings.Join(args, " "))
 		})
 	}
+}
+
+func TestKubectlArgsSelectedContextWins(t *testing.T) {
+	flags := &genericclioptions.ConfigFlags{
+		Context:    newStr("cli-context"),
+		KubeConfig: newStr("kubeconfig"),
+	}
+	opts := &shellOpts{
+		context: "row-context",
+		args:    computeShellArgs("default/pod-a", "main", flags, "linux"),
+	}
+
+	args := kubectlArgs(client.NewConfig(flags), "active-context", opts)
+	joined := strings.Join(args, " ")
+
+	assert.Equal(t, 1, strings.Count(joined, "--context"))
+	assert.Contains(t, joined, "--context row-context")
+	assert.NotContains(t, joined, "cli-context")
+	assert.Equal(t, 1, strings.Count(joined, "--kubeconfig"))
 }

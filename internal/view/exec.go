@@ -68,27 +68,7 @@ func runK(a *App, opts *shellOpts) error {
 	if err != nil {
 		return fmt.Errorf("kubectl command is not in your path: %w", err)
 	}
-	args := []string{opts.args[0]}
-	if u, err := a.Conn().Config().ImpersonateUser(); err == nil {
-		args = append(args, "--as", u)
-	}
-	if g, err := a.Conn().Config().ImpersonateGroups(); err == nil {
-		args = append(args, "--as-group", g)
-	}
-	if isInsecure := a.Conn().Config().Flags().Insecure; isInsecure != nil && *isInsecure {
-		args = append(args, "--insecure-skip-tls-verify")
-	}
-	ctxName := opts.context
-	if ctxName == "" {
-		ctxName = a.Config.K9s.ActiveContextName()
-	}
-	args = append(args, "--context", ctxName)
-	if cfg := a.Conn().Config().Flags().KubeConfig; cfg != nil && *cfg != "" {
-		args = append(args, "--kubeconfig", *cfg)
-	}
-	if len(args) > 0 {
-		opts.args = append(args, opts.args[1:]...)
-	}
+	opts.args = kubectlArgs(a.Conn().Config(), a.Config.K9s.ActiveContextName(), opts)
 	opts.binary = bin
 
 	suspended, errChan, stChan := run(a, opts)
@@ -104,6 +84,28 @@ func runK(a *App, opts *shellOpts) error {
 	}
 
 	return errs
+}
+
+func kubectlArgs(cfg *client.Config, activeContext string, opts *shellOpts) []string {
+	args := []string{opts.args[0]}
+	if u, err := cfg.ImpersonateUser(); err == nil {
+		args = append(args, "--as", u)
+	}
+	if g, err := cfg.ImpersonateGroups(); err == nil {
+		args = append(args, "--as-group", g)
+	}
+	if isInsecure := cfg.Flags().Insecure; isInsecure != nil && *isInsecure {
+		args = append(args, "--insecure-skip-tls-verify")
+	}
+	ctxName := opts.context
+	if ctxName == "" {
+		ctxName = activeContext
+	}
+	args = append(args, "--context", ctxName)
+	if kubeconfig := cfg.Flags().KubeConfig; kubeconfig != nil && *kubeconfig != "" {
+		args = append(args, "--kubeconfig", *kubeconfig)
+	}
+	return append(args, opts.args[1:]...)
 }
 
 func run(a *App, opts *shellOpts) (ok bool, errC chan error, outC chan string) {

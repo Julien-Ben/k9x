@@ -507,12 +507,6 @@ func buildShellArgs(cmd, path, co string, flags *genericclioptions.ConfigFlags) 
 	}
 	args = append(args, po)
 	if flags != nil {
-		if v, ok := isFlagSet(flags.KubeConfig); ok {
-			args = append(args, "--kubeconfig", v)
-		}
-		if v, ok := isFlagSet(flags.Context); ok {
-			args = append(args, "--context", v)
-		}
 		if v, ok := isFlagSet(flags.BearerToken); ok {
 			args = append(args, "--token", v)
 		}
