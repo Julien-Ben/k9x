@@ -428,7 +428,7 @@ func (b *Browser) nsWarpCmd(*tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 
-	o, err := b.app.factory.Get(b.GVR(), path, true, nil)
+	o, err := getScopedResource(b.app.factory, contextForScope(b.selectedContext()), b.GVR(), path)
 	if err != nil {
 		return nil
 	}

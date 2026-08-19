@@ -639,9 +639,8 @@ func TestMultiFactory_ListWithContext_DisabledScopeDoesNotReachChild(t *testing.
 	require.NoError(t, err)
 
 	scope := context.WithValue(t.Context(), internal.KeyScopeContext, "ctxB")
-	merged, err := mf.ListWithContext(scope, client.PodGVR, "default", false, labels.Everything())
-	require.NoError(t, err)
-	assert.Empty(t, merged)
+	_, err = mf.ListWithContext(scope, client.PodGVR, "default", false, labels.Everything())
+	require.ErrorIs(t, err, ErrContextDisabled)
 	assert.Equal(t, int32(0), atomic.LoadInt32(&hitB), "disabled scoped list must not resurrect informers")
 }
 

@@ -201,7 +201,7 @@ func (n *Node) List(ctx context.Context, ns string) ([]runtime.Object, error) {
 		_, name := client.Namespaced(fqn)
 		podCount := -1
 		if shouldCountPods {
-			podCount, err = n.CountPods(pods, name)
+			podCount, err = countPods(pods, name, u.GetAnnotations()[render.SourceContextAnnotation])
 			if err != nil {
 				slog.Error("Unable to get pods count",
 					slogs.ResName, name,
@@ -221,6 +221,10 @@ func (n *Node) List(ctx context.Context, ns string) ([]runtime.Object, error) {
 
 // CountPods counts the pods scheduled on a given node.
 func (*Node) CountPods(oo []runtime.Object, nodeName string) (int, error) {
+	return countPods(oo, nodeName, "")
+}
+
+func countPods(oo []runtime.Object, nodeName, source string) (int, error) {
 	var count int
 	for _, o := range oo {
 		u, ok := o.(*unstructured.Unstructured)
@@ -230,6 +234,9 @@ func (*Node) CountPods(oo []runtime.Object, nodeName string) (int, error) {
 		spec, ok := u.Object["spec"].(map[string]any)
 		if !ok {
 			return count, fmt.Errorf("expecting spec interface map but got `%T", o)
+		}
+		if source != "" && u.GetAnnotations()[render.SourceContextAnnotation] != source {
+			continue
 		}
 		if node, ok := spec["nodeName"]; ok && node == nodeName {
 			count++

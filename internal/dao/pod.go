@@ -57,8 +57,8 @@ type Pod struct {
 }
 
 // shouldStopRetrying checks if we should stop retrying log streaming based on pod status.
-func (p *Pod) shouldStopRetrying(path string) bool {
-	pod, err := p.GetInstance(path)
+func (p *Pod) shouldStopRetrying(ctx context.Context, path string) bool {
+	pod, err := p.GetInstanceWithContext(ctx, path)
 	if err != nil {
 		return true
 	}
@@ -393,7 +393,7 @@ func tailLogs(ctx context.Context, logger Logger, opts *LogOptions) LogChan {
 					slogs.Error, err,
 				)
 				// Check if we should stop retrying based on pod status
-				if pod, ok := logger.(*Pod); ok && pod.shouldStopRetrying(opts.Path) {
+				if pod, ok := logger.(*Pod); ok && pod.shouldStopRetrying(ctx, opts.Path) {
 					slog.Debug("Stopping log retry - pod is terminating or deleted",
 						slogs.Container, opts.Info(),
 					)
@@ -417,7 +417,7 @@ func tailLogs(ctx context.Context, logger Logger, opts *LogOptions) LogChan {
 					slogs.Container, opts.Info(),
 				)
 				// Check if we should stop retrying based on pod status
-				if pod, ok := logger.(*Pod); ok && pod.shouldStopRetrying(opts.Path) {
+				if pod, ok := logger.(*Pod); ok && pod.shouldStopRetrying(ctx, opts.Path) {
 					slog.Debug("Stopping log retry - pod is terminating or deleted",
 						slogs.Container, opts.Info(),
 					)
@@ -444,7 +444,7 @@ func tailLogs(ctx context.Context, logger Logger, opts *LogOptions) LogChan {
 				return
 			case streamError:
 				// Check if we should stop retrying based on pod status
-				if pod, ok := logger.(*Pod); ok && pod.shouldStopRetrying(opts.Path) {
+				if pod, ok := logger.(*Pod); ok && pod.shouldStopRetrying(ctx, opts.Path) {
 					slog.Debug("Stopping log retry after stream error - pod is terminating or deleted",
 						slogs.Container, opts.Info(),
 					)

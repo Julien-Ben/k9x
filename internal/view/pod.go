@@ -75,6 +75,9 @@ func (p *Pod) portForwardIndicator(data *model1.TableData) {
 	}
 
 	data.RowsRange(func(_ int, re model1.RowEvent) bool {
+		if re.Row.Source != "" && re.Row.Source != p.App().Config.K9s.ActiveContextName() {
+			return true
+		}
 		if ff.IsPodForwarded(re.Row.ID) {
 			re.Row.Fields[idx] = pfIndicator
 		}

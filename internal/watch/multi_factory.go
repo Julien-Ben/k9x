@@ -669,13 +669,16 @@ func (m *MultiFactory) listImpl(ctx context.Context, gvr *client.GVR, ns string,
 	scopeTargeted := false
 	if ctx != nil {
 		if scope, ok := ctx.Value(internal.KeyScopeContext).(string); ok && scope != "" {
-			if _, exists := m.children[scope]; exists {
-				ctxNames = []string{scope}
-				scopeTargeted = true
-			} else {
+			if _, exists := m.children[scope]; !exists {
 				m.mx.RUnlock()
-				return nil, fmt.Errorf("scope context %q not in children", scope)
+				return nil, fmt.Errorf("%w: %s", ErrUnknownContext, scope)
 			}
+			if m.disabled[scope] || m.actualDisabled[scope] {
+				m.mx.RUnlock()
+				return nil, fmt.Errorf("%w: %s", ErrContextDisabled, scope)
+			}
+			ctxNames = []string{scope}
+			scopeTargeted = true
 		}
 	}
 	timeout := m.childListTimeout
