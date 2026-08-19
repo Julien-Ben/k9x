@@ -12,7 +12,6 @@ import (
 	"github.com/derailed/k9s/internal/render"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -39,20 +38,20 @@ func (r *Rbac) List(ctx context.Context, ns string) ([]runtime.Object, error) {
 
 	switch gvr.R() {
 	case "clusterrolebindings":
-		return r.loadClusterRoleBinding(path)
+		return r.loadClusterRoleBinding(ctx, path)
 	case "rolebindings":
-		return r.loadRoleBinding(path)
+		return r.loadRoleBinding(ctx, path)
 	case "clusterroles":
-		return r.loadClusterRole(path)
+		return r.loadClusterRole(ctx, path)
 	case "roles":
-		return r.loadRole(path)
+		return r.loadRole(ctx, path)
 	default:
 		return nil, fmt.Errorf("expecting clusterrole/role but found %s", gvr.R())
 	}
 }
 
-func (r *Rbac) loadClusterRoleBinding(path string) ([]runtime.Object, error) {
-	crbo, err := r.getFactory().Get(client.CrbGVR, path, true, labels.Everything())
+func (r *Rbac) loadClusterRoleBinding(ctx context.Context, path string) ([]runtime.Object, error) {
+	crbo, err := getRes(r.getFactory(), ctx, client.CrbGVR, path)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +61,7 @@ func (r *Rbac) loadClusterRoleBinding(path string) ([]runtime.Object, error) {
 		return nil, err
 	}
 
-	cro, err := r.getFactory().Get(client.CrGVR, client.FQN("-", crb.RoleRef.Name), true, labels.Everything())
+	cro, err := getRes(r.getFactory(), ctx, client.CrGVR, client.FQN("-", crb.RoleRef.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -75,8 +74,8 @@ func (r *Rbac) loadClusterRoleBinding(path string) ([]runtime.Object, error) {
 	return asRuntimeObjects(parseRules(client.ClusterScope, "-", cr.Rules)), nil
 }
 
-func (r *Rbac) loadRoleBinding(path string) ([]runtime.Object, error) {
-	rbo, err := r.getFactory().Get(client.RobGVR, path, true, labels.Everything())
+func (r *Rbac) loadRoleBinding(ctx context.Context, path string) ([]runtime.Object, error) {
+	rbo, err := getRes(r.getFactory(), ctx, client.RobGVR, path)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +85,7 @@ func (r *Rbac) loadRoleBinding(path string) ([]runtime.Object, error) {
 	}
 
 	if rb.RoleRef.Kind == "ClusterRole" {
-		cro, e := r.getFactory().Get(client.CrGVR, client.FQN("-", rb.RoleRef.Name), true, labels.Everything())
+		cro, e := getRes(r.getFactory(), ctx, client.CrGVR, client.FQN("-", rb.RoleRef.Name))
 		if e != nil {
 			return nil, e
 		}
@@ -98,7 +97,7 @@ func (r *Rbac) loadRoleBinding(path string) ([]runtime.Object, error) {
 		return asRuntimeObjects(parseRules(client.ClusterScope, "-", cr.Rules)), nil
 	}
 
-	ro, err := r.getFactory().Get(client.RoGVR, client.FQN(rb.Namespace, rb.RoleRef.Name), true, labels.Everything())
+	ro, err := getRes(r.getFactory(), ctx, client.RoGVR, client.FQN(rb.Namespace, rb.RoleRef.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -111,8 +110,8 @@ func (r *Rbac) loadRoleBinding(path string) ([]runtime.Object, error) {
 	return asRuntimeObjects(parseRules(client.ClusterScope, "-", role.Rules)), nil
 }
 
-func (r *Rbac) loadClusterRole(fqn string) ([]runtime.Object, error) {
-	o, err := r.getFactory().Get(client.CrGVR, fqn, true, labels.Everything())
+func (r *Rbac) loadClusterRole(ctx context.Context, fqn string) ([]runtime.Object, error) {
+	o, err := getRes(r.getFactory(), ctx, client.CrGVR, fqn)
 	if err != nil {
 		return nil, err
 	}
@@ -125,8 +124,8 @@ func (r *Rbac) loadClusterRole(fqn string) ([]runtime.Object, error) {
 	return asRuntimeObjects(parseRules(client.ClusterScope, "-", cr.Rules)), nil
 }
 
-func (r *Rbac) loadRole(path string) ([]runtime.Object, error) {
-	o, err := r.getFactory().Get(client.RoGVR, path, true, labels.Everything())
+func (r *Rbac) loadRole(ctx context.Context, path string) ([]runtime.Object, error) {
+	o, err := getRes(r.getFactory(), ctx, client.RoGVR, path)
 	if err != nil {
 		return nil, err
 	}

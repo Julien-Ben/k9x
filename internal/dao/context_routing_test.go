@@ -19,6 +19,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -179,6 +180,27 @@ func TestSecretDecodedYAMLRoutesViaScopeContext(t *testing.T) {
 	raw, err := secret.ToYAMLWithContext(scopedRoutingCtx("ctx-b"), "default/secret-a", false)
 	require.NoError(t, err)
 	assert.Contains(t, raw, "from-ctx-b")
+	assert.Equal(t, []string{"ctx-b"}, f.getWithContextScopes)
+	assert.Zero(t, f.plainGetCalls)
+}
+
+func TestRbacRuleDrillRoutesViaScopeContext(t *testing.T) {
+	f := newScopedRoutingFactory(t, asUnstructured(t, &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: "reader"},
+		Rules: []rbacv1.PolicyRule{{
+			APIGroups: []string{""},
+			Resources: []string{"pods"},
+			Verbs:     []string{"get"},
+		}},
+	}))
+	var rbac dao.Rbac
+	rbac.Init(f, client.RbacGVR)
+	ctx := context.WithValue(scopedRoutingCtx("ctx-b"), internal.KeyGVR, client.CrGVR)
+	ctx = context.WithValue(ctx, internal.KeyPath, "reader")
+
+	rules, err := rbac.List(ctx, client.ClusterScope)
+	require.NoError(t, err)
+	require.NotEmpty(t, rules)
 	assert.Equal(t, []string{"ctx-b"}, f.getWithContextScopes)
 	assert.Zero(t, f.plainGetCalls)
 }

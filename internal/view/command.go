@@ -144,6 +144,9 @@ func (c *Command) aliasCmd(p *cmd.Interpreter, pushCmd bool) error {
 }
 
 func (c *Command) xrayCmd(p *cmd.Interpreter, pushCmd bool) error {
+	if err := guardMultiContextUnsupported(c.app.Config.K9s.MultiContextMode, "XRay"); err != nil {
+		return err
+	}
 	arg, cns, ok := p.XrayArgs()
 	if !ok {
 		return errors.New("invalid command. use `xray xxx`")
@@ -305,6 +308,10 @@ func (c *Command) specialCmd(p *cmd.Interpreter, pushCmd bool) bool {
 			c.app.Flash().Err(err)
 		}
 	case p.IsRBACCmd():
+		if err := guardMultiContextUnsupported(c.app.Config.K9s.MultiContextMode, "Policy scan"); err != nil {
+			c.app.Flash().Err(err)
+			break
+		}
 		if cat, sub, ok := p.RBACArgs(); !ok {
 			c.app.Flash().Errf("Invalid command. Use `can [u|g|s]:xxx`")
 		} else if err := c.app.inject(NewPolicy(c.app, cat, sub), true); err != nil {
@@ -327,6 +334,13 @@ func (c *Command) specialCmd(p *cmd.Interpreter, pushCmd bool) bool {
 	}
 
 	return true
+}
+
+func guardMultiContextUnsupported(multi bool, feature string) error {
+	if multi {
+		return fmt.Errorf("%s is not supported in multi-context mode", feature)
+	}
+	return nil
 }
 
 func (c *Command) viewMetaFor(p *cmd.Interpreter) (*client.GVR, *MetaViewer, *cmd.Interpreter, error) {

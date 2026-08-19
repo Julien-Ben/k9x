@@ -9,6 +9,7 @@ import (
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/view/cmd"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_viewMetaFor(t *testing.T) {
@@ -104,4 +105,9 @@ func TestGuardContextOverride(t *testing.T) {
 			assert.EqualError(t, err, tt.want)
 		})
 	}
+}
+
+func TestGuardMultiContextUnsupported(t *testing.T) {
+	require.NoError(t, guardMultiContextUnsupported(false, "XRay"))
+	require.EqualError(t, guardMultiContextUnsupported(true, "XRay"), "XRay is not supported in multi-context mode")
 }

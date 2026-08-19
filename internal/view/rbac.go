@@ -33,19 +33,23 @@ func (*Rbac) bindKeys(aa *ui.KeyActions) {
 	aa.Delete(ui.KeyShiftA, tcell.KeyCtrlSpace, ui.KeySpace)
 }
 
-func showRules(app *App, _ ui.Tabular, gvr *client.GVR, path string, _ RowIdent) {
+func showRules(app *App, _ ui.Tabular, gvr *client.GVR, path string, sel RowIdent) {
 	v := NewRbac(client.RbacGVR)
-	v.SetContextFn(rbacCtx(gvr, path))
+	v.SetContextFn(rbacCtx(gvr, path, sel.Source))
 
 	if err := app.inject(v, false); err != nil {
 		app.Flash().Err(err)
 	}
 }
 
-func rbacCtx(gvr *client.GVR, path string) ContextFunc {
+func rbacCtx(gvr *client.GVR, path, scope string) ContextFunc {
 	return func(ctx context.Context) context.Context {
 		ctx = context.WithValue(ctx, internal.KeyPath, path)
-		return context.WithValue(ctx, internal.KeyGVR, gvr)
+		ctx = context.WithValue(ctx, internal.KeyGVR, gvr)
+		if scope != "" {
+			ctx = context.WithValue(ctx, internal.KeyScopeContext, scope)
+		}
+		return ctx
 	}
 }
 

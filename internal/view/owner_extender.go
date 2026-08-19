@@ -62,7 +62,7 @@ func (v *OwnerExtender) findOwnerFor(path string) error {
 		return err
 	}
 
-	o, err := res.Get(v.defaultCtx(), path)
+	o, err := res.Get(v.defaultCtx(v.GetTable().selectedContext()), path)
 	if err != nil {
 		return err
 	}
@@ -116,8 +116,12 @@ func (v *OwnerExtender) jumpOwner(ns string, owner *metav1.OwnerReference) error
 	return nil
 }
 
-func (v *OwnerExtender) defaultCtx() context.Context {
-	return context.WithValue(context.Background(), internal.KeyFactory, v.App().factory)
+func (v *OwnerExtender) defaultCtx(scope string) context.Context {
+	ctx := context.WithValue(context.Background(), internal.KeyFactory, v.App().factory)
+	if scope != "" {
+		ctx = context.WithValue(ctx, internal.KeyScopeContext, scope)
+	}
+	return ctx
 }
 
 func (*OwnerExtender) asUnstructuredObject(o runtime.Object) (*unstructured.Unstructured, bool) {
