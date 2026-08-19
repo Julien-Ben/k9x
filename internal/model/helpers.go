@@ -67,6 +67,14 @@ func resourceMeta(gvr *client.GVR) ResourceMeta {
 	return meta
 }
 
+// IsTableFallback reports whether gvr uses the primary-only server-side table
+// DAO because it has no registered context-aware model.
+func IsTableFallback(gvr *client.GVR) bool {
+	meta := resourceMeta(gvr)
+	_, ok := meta.DAO.(*dao.Table)
+	return ok
+}
+
 // MetaFQN returns a fully qualified resource name.
 func MetaFQN(m *metav1.ObjectMeta) string {
 	return FQN(m.Namespace, m.Name)

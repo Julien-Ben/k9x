@@ -14,6 +14,7 @@ import (
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/config"
 	"github.com/derailed/k9s/internal/config/mock"
+	"github.com/derailed/k9s/internal/model"
 	"github.com/derailed/k9s/internal/model1"
 	"github.com/derailed/k9s/internal/render"
 	"github.com/derailed/tcell/v2"
@@ -125,6 +126,14 @@ func TestHasUnscopedSelection(t *testing.T) {
 			assert.Equal(t, u.e, hasUnscopedSelection(u.multi, u.refs))
 		})
 	}
+}
+
+func TestDeleteUnscopedPolicy(t *testing.T) {
+	refs := []model1.RowIdent{{ID: "default/pod-a"}}
+	assert.True(t, hasUnscopedSelection(true, refs))
+	assert.True(t, client.IsNestedGVR(client.WkGVR), "primary-only workload view must be explicitly classified")
+	assert.False(t, model.IsTableFallback(client.PodGVR), "registered pod view is context-aware")
+	assert.True(t, model.IsTableFallback(client.NewGVR("example.io/v1/widgets")), "unregistered CRDs use the primary table fallback")
 }
 
 func TestFwFQN(t *testing.T) {

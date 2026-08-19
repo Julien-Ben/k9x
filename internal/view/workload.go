@@ -91,7 +91,7 @@ func (w *Workload) deleteCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if len(selections) == 0 {
 		return evt
 	}
-	if refuseUnscopedSelection(w.App(), selections) {
+	if refuseUnscopedDelete(w.App(), w.GVR(), selections) {
 		return nil
 	}
 

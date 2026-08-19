@@ -539,7 +539,7 @@ func (b *Browser) deleteCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if len(selections) == 0 {
 		return evt
 	}
-	if refuseUnscopedSelection(b.app, selections) {
+	if refuseUnscopedDelete(b.app, b.GVR(), selections) {
 		return nil
 	}
 

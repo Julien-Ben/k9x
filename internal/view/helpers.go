@@ -196,6 +196,15 @@ func refuseUnscopedSelection(app *App, refs []model1.RowIdent) bool {
 	return true
 }
 
+func refuseUnscopedDelete(app *App, gvr *client.GVR, refs []model1.RowIdent) bool {
+	primaryOnly := client.IsNestedGVR(gvr) || model.IsTableFallback(gvr)
+	if primaryOnly || !hasUnscopedSelection(app.Config.K9s.MultiContextMode, refs) {
+		return false
+	}
+	app.Flash().Errf(missingSourceContextMsg)
+	return true
+}
+
 func showReplicasets(app *App, path string, labelSel labels.Selector, fieldSel, scopeCtx string) {
 	v := NewReplicaSet(client.RsGVR)
 	v.SetContextFn(func(ctx context.Context) context.Context {
