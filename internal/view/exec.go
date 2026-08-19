@@ -374,7 +374,7 @@ func launchPodShell(v model.Igniter, a *App) {
 
 func sshIn(a *App, fqn, co string) error {
 	cfg := a.Config.K9s.ShellPod
-	platform, err := getPodOS(a.factory, fqn)
+	platform, err := getPodOS(a.factory, fqn, "")
 	if err != nil {
 		slog.Warn("os detect failed", slogs.Error, err)
 	}

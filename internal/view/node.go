@@ -23,6 +23,7 @@ import (
 // Node represents a node view.
 type Node struct {
 	ResourceViewer
+	scopeContext string
 }
 
 // NewNode returns a new node view.
@@ -38,8 +39,15 @@ func NewNode(gvr *client.GVR) ResourceViewer {
 }
 
 func (n *Node) nodeContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, internal.KeyPodCounting, !n.App().Config.K9s.DisablePodCounting)
+	ctx = context.WithValue(ctx, internal.KeyPodCounting, !n.App().Config.K9s.DisablePodCounting)
+	if n.scopeContext != "" {
+		ctx = context.WithValue(ctx, internal.KeyScopeContext, n.scopeContext)
+	}
+	return ctx
 }
+
+// SetScopeContext constrains a node drill-down to the parent pod's cluster.
+func (n *Node) SetScopeContext(scope string) { n.scopeContext = scope }
 
 func (n *Node) bindDangerousKeys(aa *ui.KeyActions) {
 	aa.Bulk(ui.KeyMap{

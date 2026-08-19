@@ -35,6 +35,30 @@ func TestGetScopedResourceRoutesCronJobLookup(t *testing.T) {
 	assert.Zero(t, factory.plainGetCalls)
 }
 
+func TestFetchPodRoutesThroughScopeContext(t *testing.T) {
+	factory := &scopedGetFactory{
+		obj: &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "Pod",
+			"metadata": map[string]any{
+				"name":      "pod-a",
+				"namespace": "default",
+			},
+			"spec": map[string]any{
+				"containers": []any{map[string]any{"name": "main", "image": "busybox"}},
+			},
+		}},
+	}
+	ctx := scopedCtx(context.Background(), model1.RowIdent{ID: "default/pod-a", Source: "ctx-b"})
+
+	pod, err := fetchPod(ctx, factory, "default/pod-a")
+
+	require.NoError(t, err)
+	assert.Equal(t, "pod-a", pod.Name)
+	assert.Equal(t, []string{"ctx-b"}, factory.scopes)
+	assert.Zero(t, factory.plainGetCalls)
+}
+
 type scopedGetFactory struct {
 	testFactory
 	obj           runtime.Object

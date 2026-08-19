@@ -24,6 +24,7 @@ const containerTitle = "Containers"
 // Container represents a container view.
 type Container struct {
 	ResourceViewer
+	scopeContext string
 }
 
 // NewContainer returns a new container view.
@@ -60,6 +61,9 @@ func (c *Container) decorateRows(data *model1.TableData) {
 
 // Name returns the component name.
 func (*Container) Name() string { return containerTitle }
+
+// SetScopeContext preserves the parent pod's source for synthesized rows.
+func (c *Container) SetScopeContext(scope string) { c.scopeContext = scope }
 
 func (c *Container) bindDangerousKeys(aa *ui.KeyActions) {
 	aa.Bulk(ui.KeyMap{
@@ -117,6 +121,7 @@ func (c *Container) logOptions(prev bool) (*dao.LogOptions, error) {
 		SingleContainer: true,
 		ShowTimestamp:   cfg.ShowTime,
 		Previous:        prev,
+		ScopeContext:    c.scopeContext,
 	}
 
 	return &opts, nil
@@ -175,7 +180,7 @@ func (c *Container) shellCmd(evt *tcell.EventKey) *tcell.EventKey {
 			c.App().Flash().Err(err)
 		}
 	}()
-	err = shellIn(c.App(), c.GetTable().Path, path, c.GetTable().selectedContext())
+	err = shellIn(c.App(), c.GetTable().Path, path, c.scopeContext)
 
 	return nil
 }
@@ -188,7 +193,7 @@ func (c *Container) attachCmd(evt *tcell.EventKey) *tcell.EventKey {
 
 	c.Stop()
 	defer c.Start()
-	attachIn(c.App(), c.GetTable().Path, sel, c.GetTable().selectedContext())
+	attachIn(c.App(), c.GetTable().Path, sel, c.scopeContext)
 
 	return nil
 }
@@ -242,7 +247,7 @@ func locateContainer(co string, cc []v1.Container) (*v1.Container, error) {
 }
 
 func (c *Container) listForwardable(path string) (port.ContainerPortSpecs, map[string]string, bool) {
-	po, err := fetchPod(c.App().factory, c.GetTable().Path)
+	po, err := fetchPod(contextForScope(c.scopeContext), c.App().factory, c.GetTable().Path)
 	if err != nil {
 		return nil, nil, false
 	}

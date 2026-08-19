@@ -117,7 +117,7 @@ func (p *PortForwardExtender) portForwardContext(ctx context.Context) context.Co
 // Helpers...
 
 func ensurePodPortFwdAllowed(factory dao.Factory, podName string) error {
-	pod, err := fetchPod(factory, podName)
+	pod, err := fetchPod(context.Background(), factory, podName)
 	if err != nil {
 		return err
 	}

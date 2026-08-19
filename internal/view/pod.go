@@ -26,7 +26,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
@@ -139,28 +138,30 @@ func (p *Pod) logOptions(prev bool) (*dao.LogOptions, error) {
 		return nil, errors.New("you must provide a selection")
 	}
 
-	pod, err := fetchPod(p.App().factory, path)
+	scope := p.GetTable().selectedContext()
+	pod, err := fetchPod(contextForScope(scope), p.App().factory, path)
 	if err != nil {
 		return nil, err
 	}
 
-	return podLogOptions(p.App(), path, prev, &pod.ObjectMeta, &pod.Spec), nil
+	opts := podLogOptions(p.App(), path, prev, &pod.ObjectMeta, &pod.Spec)
+	opts.ScopeContext = scope
+	return opts, nil
 }
 
-func (p *Pod) showContainers(app *App, _ ui.Tabular, _ *client.GVR, _ string, _ RowIdent) {
+func (p *Pod) showContainers(app *App, _ ui.Tabular, _ *client.GVR, path string, sel RowIdent) {
 	co := NewContainer(client.CoGVR)
-	co.SetContextFn(p.coContext)
+	co.(*Container).SetScopeContext(sel.Source)
+	co.SetContextFn(func(ctx context.Context) context.Context {
+		ctx = context.WithValue(ctx, internal.KeyPath, path)
+		if sel.Source != "" {
+			ctx = context.WithValue(ctx, internal.KeyScopeContext, sel.Source)
+		}
+		return ctx
+	})
 	if err := app.inject(co, false); err != nil {
 		app.Flash().Err(err)
 	}
-}
-
-func (p *Pod) coContext(ctx context.Context) context.Context {
-	ctx = context.WithValue(ctx, internal.KeyPath, p.GetTable().GetSelectedItem())
-	if scope := p.GetTable().selectedContext(); scope != "" {
-		ctx = context.WithValue(ctx, internal.KeyScopeContext, scope)
-	}
-	return ctx
 }
 
 // Handlers...
@@ -170,7 +171,7 @@ func (p *Pod) showNode(evt *tcell.EventKey) *tcell.EventKey {
 	if path == "" {
 		return evt
 	}
-	pod, err := fetchPod(p.App().factory, path)
+	pod, err := fetchPod(contextForScope(p.GetTable().selectedContext()), p.App().factory, path)
 	if err != nil {
 		p.App().Flash().Err(err)
 		return nil
@@ -180,6 +181,7 @@ func (p *Pod) showNode(evt *tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 	no := NewNode(client.NodeGVR)
+	no.(*Node).SetScopeContext(p.GetTable().selectedContext())
 	no.SetInstance(pod.Spec.NodeName)
 	if err := p.App().inject(no, false); err != nil {
 		p.App().Flash().Err(err)
@@ -232,12 +234,13 @@ func (p *Pod) shellCmd(evt *tcell.EventKey) *tcell.EventKey {
 		return evt
 	}
 
-	if !podIsRunning(p.App().factory, path) {
+	scope := p.GetTable().selectedContext()
+	if !podIsRunning(p.App().factory, path, scope) {
 		p.App().Flash().Errf("%s is not in a running state", path)
 		return nil
 	}
 
-	if err := containerShellIn(p.App(), p, path, "", p.GetTable().selectedContext()); err != nil {
+	if err := containerShellIn(p.App(), p, path, "", scope); err != nil {
 		p.App().Flash().Err(err)
 	}
 
@@ -250,12 +253,13 @@ func (p *Pod) attachCmd(evt *tcell.EventKey) *tcell.EventKey {
 		return evt
 	}
 
-	if !podIsRunning(p.App().factory, path) {
+	scope := p.GetTable().selectedContext()
+	if !podIsRunning(p.App().factory, path, scope) {
 		p.App().Flash().Errf("%s is not in a happy state", path)
 		return nil
 	}
 
-	if err := containerAttachIn(p.App(), p, path, "", p.GetTable().selectedContext()); err != nil {
+	if err := containerAttachIn(p.App(), p, path, "", scope); err != nil {
 		p.App().Flash().Err(err)
 	}
 
@@ -348,7 +352,7 @@ func (p *Pod) transferCmd(*tcell.EventKey) *tcell.EventKey {
 		return true
 	}
 
-	pod, err := fetchPod(p.App().factory, path)
+	pod, err := fetchPod(contextForScope(p.GetTable().selectedContext()), p.App().factory, path)
 	if err != nil {
 		p.App().Flash().Err(err)
 		return nil
@@ -378,7 +382,7 @@ func containerShellIn(a *App, comp model.Component, path, co, ctxName string) er
 		return nil
 	}
 
-	pod, err := fetchPod(a.factory, path)
+	pod, err := fetchPod(contextForScope(ctxName), a.factory, path)
 	if err != nil {
 		return err
 	}
@@ -418,7 +422,7 @@ func resumeShellIn(a *App, c model.Component, path, co, ctxName string) {
 }
 
 func shellIn(a *App, fqn, co, ctxName string) error {
-	platform, err := getPodOS(a.factory, fqn)
+	platform, err := getPodOS(a.factory, fqn, ctxName)
 	if err != nil {
 		slog.Warn("OS detection failed (assuming linux)", slogs.Error, err)
 		platform = "linux"
@@ -440,7 +444,7 @@ func containerAttachIn(a *App, comp model.Component, path, co, ctxName string) e
 		return nil
 	}
 
-	pod, err := fetchPod(a.factory, path)
+	pod, err := fetchPod(contextForScope(ctxName), a.factory, path)
 	if err != nil {
 		return err
 	}
@@ -547,8 +551,8 @@ func fetchContainers(meta *metav1.ObjectMeta, spec *v1.PodSpec, allContainers bo
 	return nn
 }
 
-func fetchPod(f dao.Factory, path string) (*v1.Pod, error) {
-	o, err := f.Get(client.PodGVR, path, true, labels.Everything())
+func fetchPod(ctx context.Context, f dao.Factory, path string) (*v1.Pod, error) {
+	o, err := getScopedResource(f, ctx, client.PodGVR, path)
 	if err != nil {
 		return nil, err
 	}
@@ -562,8 +566,8 @@ func fetchPod(f dao.Factory, path string) (*v1.Pod, error) {
 	return &pod, nil
 }
 
-func podIsRunning(f dao.Factory, fqn string) bool {
-	po, err := fetchPod(f, fqn)
+func podIsRunning(f dao.Factory, fqn, scope string) bool {
+	po, err := fetchPod(contextForScope(scope), f, fqn)
 	if err != nil {
 		slog.Error("Unable to fetch pod",
 			slogs.FQN, fqn,
@@ -576,8 +580,9 @@ func podIsRunning(f dao.Factory, fqn string) bool {
 	return re.Phase(po.DeletionTimestamp, &po.Spec, &po.Status) == render.Running
 }
 
-func getPodOS(f dao.Factory, fqn string) (string, error) {
-	po, err := fetchPod(f, fqn)
+func getPodOS(f dao.Factory, fqn, scope string) (string, error) {
+	ctx := contextForScope(scope)
+	po, err := fetchPod(ctx, f, fqn)
 	if err != nil {
 		return "", err
 	}
@@ -585,7 +590,7 @@ func getPodOS(f dao.Factory, fqn string) (string, error) {
 		return podOS, nil
 	}
 
-	node, err := dao.FetchNode(context.Background(), f, po.Spec.NodeName)
+	node, err := dao.FetchNode(ctx, f, po.Spec.NodeName)
 	if err == nil {
 		if nodeOS, ok := osFromSelector(node.Labels); ok {
 			return nodeOS, nil
@@ -593,6 +598,10 @@ func getPodOS(f dao.Factory, fqn string) (string, error) {
 	}
 
 	return "", errors.New("no os information available")
+}
+
+func contextForScope(scope string) context.Context {
+	return scopedCtx(context.Background(), model1.RowIdent{Source: scope})
 }
 
 func osFromSelector(s map[string]string) (string, bool) {
