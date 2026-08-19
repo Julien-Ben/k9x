@@ -263,6 +263,15 @@ func (p *Pod) attachCmd(evt *tcell.EventKey) *tcell.EventKey {
 }
 
 func (p *Pod) sanitizeCmd(*tcell.EventKey) *tcell.EventKey {
+	row := p.GetTable().GetSelectedRowRef()
+	if row == nil || row.ID == "" {
+		return nil
+	}
+	ref := row.Ident()
+	if refuseUnscopedSelection(p.App(), []model1.RowIdent{ref}) {
+		return nil
+	}
+
 	res, err := dao.AccessorFor(p.App().factory, p.GVR())
 	if err != nil {
 		p.App().Flash().Err(err)
@@ -276,7 +285,7 @@ func (p *Pod) sanitizeCmd(*tcell.EventKey) *tcell.EventKey {
 
 	msg := fmt.Sprintf("Sanitize deletes all pods in completed/error state\nPlease enter [orange::b]%s[-::-] to proceed.", magicPrompt)
 	dialog.ShowConfirmAck(p.App().App, p.App().Content.Pages, magicPrompt, true, "Sanitize", msg, func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*p.App().Conn().Config().CallTimeout())
+		ctx, cancel := context.WithTimeout(scopedCtx(context.Background(), ref), 5*p.App().Conn().Config().CallTimeout())
 		defer cancel()
 		total, err := s.Sanitize(ctx, p.GetTable().GetModel().GetNamespace())
 		if err != nil {

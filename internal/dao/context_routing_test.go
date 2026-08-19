@@ -12,6 +12,7 @@ import (
 	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/dao"
+	"github.com/derailed/k9s/internal/render"
 	"github.com/derailed/k9s/internal/watch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 )
@@ -87,6 +89,24 @@ func TestPodImageReadsRouteViaScopeContext(t *testing.T) {
 	assert.Zero(t, f.plainGetCalls)
 }
 
+func TestPodSanitizeRoutesListAndDeleteViaScopeContext(t *testing.T) {
+	obj := routedPodObject(t, false)
+	obj.(*unstructured.Unstructured).Object["status"] = map[string]any{
+		"phase":  string(v1.PodSucceeded),
+		"reason": render.PhaseCompleted,
+	}
+	f := newScopedRoutingFactory(t, obj)
+	var pod dao.Pod
+	pod.Init(f, client.PodGVR)
+
+	total, err := pod.Sanitize(scopedRoutingCtx("ctx-b"), "default")
+	require.ErrorIs(t, err, errScopedDial)
+	assert.Zero(t, total)
+	assert.Equal(t, []string{"ctx-b"}, f.listWithContextScopes)
+	assert.Equal(t, []string{"ctx-b", "ctx-b"}, f.clientForScopes)
+	assert.Zero(t, f.plainListCalls)
+}
+
 type scopedRoutingConn struct {
 	conn
 
@@ -98,12 +118,19 @@ func (c *scopedRoutingConn) Dial() (kubernetes.Interface, error) {
 	return nil, errScopedDial
 }
 
+func (c *scopedRoutingConn) DynDial() (dynamic.Interface, error) {
+	c.dialCalls++
+	return nil, errScopedDial
+}
+
 type scopedRoutingFactory struct {
-	obj                  runtime.Object
-	conn                 *scopedRoutingConn
-	plainGetCalls        int
-	clientForScopes      []string
-	getWithContextScopes []string
+	obj                   runtime.Object
+	conn                  *scopedRoutingConn
+	plainGetCalls         int
+	plainListCalls        int
+	clientForScopes       []string
+	getWithContextScopes  []string
+	listWithContextScopes []string
 }
 
 var _ dao.ContextualFactory = (*scopedRoutingFactory)(nil)
@@ -136,12 +163,14 @@ func (f *scopedRoutingFactory) GetWithContext(ctx context.Context, _ *client.GVR
 	return f.obj, nil
 }
 
-func (*scopedRoutingFactory) List(*client.GVR, string, bool, labels.Selector) ([]runtime.Object, error) {
-	return nil, nil
+func (f *scopedRoutingFactory) List(*client.GVR, string, bool, labels.Selector) ([]runtime.Object, error) {
+	f.plainListCalls++
+	return []runtime.Object{f.obj}, nil
 }
 
-func (*scopedRoutingFactory) ListWithContext(context.Context, *client.GVR, string, bool, labels.Selector) ([]runtime.Object, error) {
-	return nil, nil
+func (f *scopedRoutingFactory) ListWithContext(ctx context.Context, _ *client.GVR, _ string, _ bool, _ labels.Selector) ([]runtime.Object, error) {
+	f.listWithContextScopes = append(f.listWithContextScopes, routingScope(ctx))
+	return []runtime.Object{f.obj}, nil
 }
 
 func (*scopedRoutingFactory) ForResource(string, *client.GVR) (informers.GenericInformer, error) {
