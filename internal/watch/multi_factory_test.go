@@ -586,19 +586,13 @@ func TestMultiFactory_ToggleContext_DisabledExcludedFromHealthSummaryTotal(t *te
 	assert.Equal(t, HealthHealthy, mf.HealthSnapshot()["ctxBad"], "disable should reset stale quarantine state")
 }
 
-func TestMultiFactory_HasMetrics_SkipsDisabledChildren(t *testing.T) {
-	childA := &fakeChild{conn: &stubConn{metricsStub: true, hasMetrics: true}}
-	childB := &fakeChild{conn: &stubConn{metricsStub: true, hasMetrics: false}}
+func TestMultiFactory_HasMetrics_DisabledUntilContextAware(t *testing.T) {
 	mf, err := newMultiFactoryForTesting("ctxA", map[string]childFactory{
-		"ctxA": childA,
-		"ctxB": childB,
+		"ctxA": &fakeChild{},
+		"ctxB": &fakeChild{},
 	})
 	require.NoError(t, err)
 	assert.False(t, mf.HasMetrics())
-
-	_, err = mf.ToggleContext("ctxB")
-	require.NoError(t, err)
-	assert.True(t, mf.HasMetrics(), "disabled metrics-less child must not veto enabled set")
 }
 
 func TestMultiFactory_RuntimeIteratorsSkipDisabledChildren(t *testing.T) {
@@ -803,34 +797,6 @@ func TestMultiFactory_GetWithContext_DisabledScopeDoesNotReachChild(t *testing.T
 	assert.Equal(t, int32(0), atomic.LoadInt32(&hitB), "disabled scoped get must not resurrect informers")
 }
 
-// TestMultiFactory_HasMetrics_AllOrNone asserts the conservative AND across
-// children: if any cluster lacks metrics, HasMetrics returns false so the UI
-// hides CPU/MEM columns rather than rendering N/A for metric-less rows.
-func TestMultiFactory_HasMetrics_AllOrNone(t *testing.T) {
-	tests := []struct {
-		name string
-		a, b bool
-		want bool
-	}{
-		{"both have metrics", true, true, true},
-		{"a lacks metrics", false, true, false},
-		{"b lacks metrics", true, false, false},
-		{"neither has metrics", false, false, false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			childA := &fakeChild{conn: &stubConn{metricsStub: true, hasMetrics: tc.a}}
-			childB := &fakeChild{conn: &stubConn{metricsStub: true, hasMetrics: tc.b}}
-			mf, err := newMultiFactoryForTesting("ctxA", map[string]childFactory{
-				"ctxA": childA,
-				"ctxB": childB,
-			})
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, mf.HasMetrics())
-		})
-	}
-}
-
 // TestMultiFactory_Contexts asserts the sorted child-name accessor used by the
 // startup flash and cluster-info panel.
 func TestMultiFactory_Contexts(t *testing.T) {
@@ -975,18 +941,8 @@ func (f *fakeChild) Client() client.Connection { return f.conn }
 type stubConn struct {
 	client.Connection
 	name               string //nolint:unused // identifier preserved for debug printouts
-	hasMetrics         bool
-	metricsStub        bool
 	reconnect          bool
 	connectivityChecks int32
-}
-
-func (s *stubConn) HasMetrics() bool {
-	if s.metricsStub {
-		return s.hasMetrics
-	}
-	// Fall through to embedded nil → panic, preserving original semantics.
-	return s.Connection.HasMetrics()
 }
 
 func (s *stubConn) CheckConnectivity() bool {

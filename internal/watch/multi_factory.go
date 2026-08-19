@@ -597,22 +597,11 @@ func (m *MultiFactory) Client() client.Connection {
 	return m.children[m.primary].Client()
 }
 
-// HasMetrics reports whether every child cluster exposes a metrics-server.
-// Conservative AND across children: in multi-context mode CPU/MEM columns are
-// only meaningful if every cluster can supply numbers, otherwise rows from
-// metric-less clusters would render as N/A and visually skew comparisons.
+// HasMetrics remains disabled until metrics are fetched and joined per
+// context. Returning primary-only metrics for fanned-out rows can associate
+// values with a same-named resource in the wrong cluster.
 func (m *MultiFactory) HasMetrics() bool {
-	m.mx.RLock()
-	defer m.mx.RUnlock()
-	for name, c := range m.children {
-		if m.disabled[name] {
-			continue
-		}
-		if !c.Client().HasMetrics() {
-			return false
-		}
-	}
-	return true
+	return false
 }
 
 // Contexts returns the sorted list of child context names. Used by the view

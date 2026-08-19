@@ -121,9 +121,7 @@ func (a *App) flashMultiContextStartup(names []string) {
 
 // HasMetrics reports whether metrics columns (CPU/MEM) should be rendered.
 // In single-context mode this is the primary connection's HasMetrics. In
-// multi-context mode it's a conservative AND across every child cluster: if
-// any cluster lacks metrics, the columns are hidden so rows from metric-less
-// clusters don't render as N/A and visually skew comparisons.
+// multi-context mode metrics stay hidden until collection is context-aware.
 func (a *App) HasMetrics() bool {
 	if mf, ok := a.factory.(*watch.MultiFactory); ok {
 		return mf.HasMetrics()
