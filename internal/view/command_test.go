@@ -82,3 +82,26 @@ func Test_viewMetaFor(t *testing.T) {
 		})
 	}
 }
+
+func TestGuardContextOverride(t *testing.T) {
+	tests := []struct {
+		name  string
+		multi bool
+		line  string
+		want  string
+	}{
+		{name: "multi blocks resource override", multi: true, line: "pods @ctx-b", want: "context switching is not supported in multi-context mode"},
+		{name: "single allows resource override", line: "pods @ctx-b"},
+		{name: "multi allows command without override", multi: true, line: "pods"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := guardContextOverride(tt.multi, cmd.NewInterpreter(tt.line))
+			if tt.want == "" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.EqualError(t, err, tt.want)
+		})
+	}
+}

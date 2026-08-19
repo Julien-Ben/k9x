@@ -177,6 +177,9 @@ func (c *Command) run(p *cmd.Interpreter, fqn string, clearStack, pushCmd bool) 
 	if c.specialCmd(p, pushCmd) {
 		return nil
 	}
+	if err := guardContextOverride(c.app.Config.K9s.MultiContextMode, p); err != nil {
+		return err
+	}
 	gvr, v, comd, err := c.viewMetaFor(p)
 	if err != nil {
 		return err
@@ -239,6 +242,13 @@ func (c *Command) run(p *cmd.Interpreter, fqn string, clearStack, pushCmd bool) 
 	}
 
 	return c.exec(p, gvr, co, clearStack, pushCmd)
+}
+
+func guardContextOverride(multiContext bool, p *cmd.Interpreter) error {
+	if _, ok := p.HasContext(); multiContext && ok {
+		return errors.New("context switching is not supported in multi-context mode")
+	}
+	return nil
 }
 
 func (c *Command) defaultCmd(isRoot bool) error {
