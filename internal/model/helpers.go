@@ -29,6 +29,29 @@ func getMeta(ctx context.Context, gvr *client.GVR) (ResourceMeta, error) {
 	return meta, nil
 }
 
+func hasScopeContext(ctx context.Context) bool {
+	scope, ok := ctx.Value(internal.KeyScopeContext).(string)
+	return ok && scope != ""
+}
+
+func describeDAO(ctx context.Context, desc dao.Describer, path string) (string, error) {
+	if hasScopeContext(ctx) {
+		if contextual, ok := desc.(dao.ContextualDescriber); ok {
+			return contextual.DescribeWithContext(ctx, path)
+		}
+	}
+	return desc.Describe(path)
+}
+
+func yamlDAO(ctx context.Context, desc dao.Describer, path string, showManaged bool) (string, error) {
+	if hasScopeContext(ctx) {
+		if contextual, ok := desc.(dao.ContextualDescriber); ok {
+			return contextual.ToYAMLWithContext(ctx, path, showManaged)
+		}
+	}
+	return desc.ToYAML(path, showManaged)
+}
+
 func resourceMeta(gvr *client.GVR) ResourceMeta {
 	meta, ok := Registry[gvr]
 	if !ok {
