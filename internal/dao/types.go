@@ -71,6 +71,16 @@ type ContextualFactory interface {
 	ClientFor(ctx context.Context) client.Connection
 }
 
+// RuntimeContextState exposes MultiFactory's runtime context manager state to
+// the context DAO without coupling renderers to the watch package.
+type RuntimeContextState interface {
+	// ContextEnabled reports whether the named context is desired-on.
+	ContextEnabled(name string) bool
+
+	// HealthSnapshot returns a point-in-time health state for each child.
+	HealthSnapshot() map[string]watch.ClusterHealth
+}
+
 // LifecycleFactory is a Factory augmented with informer lifecycle and
 // port-forward management. Used by the view layer to drive informer start/stop
 // and forwarder registration. Kept separate from Factory to avoid widening the

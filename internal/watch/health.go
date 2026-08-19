@@ -32,13 +32,16 @@ const (
 	// with non-NotFound errors. The UI flashes a banner and (in a follow-up
 	// change) listImpl will skip the child from fan-out until it recovers.
 	HealthQuarantined
+	// HealthDisabled: child is deliberately disabled by the runtime context
+	// manager. Disabled contexts are excluded from health summaries and probes.
+	HealthDisabled
 )
 
 // childHealthState tracks the per-context counters MultiFactory uses to drive
 // state transitions. Kept on MultiFactory under healthMx; not exported.
 type childHealthState struct {
-	state ClusterHealth
-	fails int   // consecutive non-NotFound failures
+	state   ClusterHealth
+	fails   int   // consecutive non-NotFound failures
 	lastErr error // most recent failure (used in transition flash text)
 	// lastProbeAt records when we last attempted a List against this child
 	// while quarantined. listImpl skips quarantined children unless this is

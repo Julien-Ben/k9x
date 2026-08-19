@@ -448,7 +448,7 @@ func (t *Table) doUpdate(data *model1.TableData) *model1.TableData {
 	} else {
 		t.actions.Delete(KeyShiftP)
 	}
-	if t.GetModel().MultiContext() {
+	if _, ok := data.Header().IndexOf("CONTEXT", true); t.GetModel().MultiContext() && ok {
 		t.actions.Add(
 			KeyShiftX,
 			NewKeyAction("Sort Context", t.SortColCmd("CONTEXT", true), true),

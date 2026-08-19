@@ -20,6 +20,7 @@ import (
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/model"
 	"github.com/derailed/k9s/internal/model1"
+	"github.com/derailed/k9s/internal/render"
 	"github.com/derailed/k9s/internal/slogs"
 	"github.com/derailed/k9s/internal/ui"
 	"github.com/derailed/k9s/internal/ui/dialog"
@@ -81,6 +82,9 @@ func (b *Browser) Init(ctx context.Context) error {
 	colorerFn := model1.DefaultColorer
 	if r, ok := model.Registry[b.GVR()]; ok && r.Renderer != nil {
 		colorerFn = r.Renderer.ColorerFunc()
+	}
+	if b.GVR() == client.CtGVR && b.app != nil && b.app.Config != nil && b.app.Config.K9s.MultiContextMode {
+		colorerFn = new(render.ContextManager).ColorerFunc()
 	}
 	b.GetTable().SetColorerFn(colorerFn)
 

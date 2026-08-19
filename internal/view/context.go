@@ -14,6 +14,7 @@ import (
 	"github.com/derailed/k9s/internal/ui"
 	"github.com/derailed/k9s/internal/ui/dialog"
 	"github.com/derailed/k9s/internal/view/cmd"
+	"github.com/derailed/k9s/internal/watch"
 	"github.com/derailed/tcell/v2"
 	"github.com/derailed/tview"
 )
@@ -41,6 +42,15 @@ func NewContext(gvr *client.GVR) ResourceViewer {
 
 func (c *Context) bindKeys(aa *ui.KeyActions) {
 	aa.Delete(ui.KeyShiftA, tcell.KeyCtrlSpace, ui.KeySpace)
+	if c.App().Config.K9s.MultiContextMode {
+		if enter, ok := aa.Get(tcell.KeyEnter); ok {
+			enter.Description = "WATCH"
+			enter.Opts.Visible = true
+			aa.Add(tcell.KeyEnter, enter)
+		}
+		aa.ClearDanger()
+		return
+	}
 	if !c.App().Config.IsReadOnly() {
 		c.bindDangerousKeys(aa)
 	}
@@ -134,6 +144,18 @@ func (c *Context) useCtx(app *App, _ ui.Tabular, gvr *client.GVR, path string, _
 		slogs.GVR, gvr,
 		slogs.FQN, path,
 	)
+	if app.Config.K9s.MultiContextMode {
+		if err := toggleCtx(app, path); err != nil {
+			if errors.Is(err, watch.ErrLastEnabledContext) {
+				app.Flash().Warn("cannot disable the last active context")
+			} else {
+				app.Flash().Err(err)
+			}
+			return
+		}
+		c.Refresh()
+		return
+	}
 	if err := useContext(app, path); err != nil {
 		app.Flash().Err(err)
 		return
@@ -173,4 +195,22 @@ func useContext(app *App, name string) error {
 	}
 
 	return app.switchContext(cmd.NewInterpreter("ctx "+name), true)
+}
+
+type runtimeContextToggler interface {
+	ToggleContext(name string) (bool, error)
+	EnabledCount() int
+	Contexts() []string
+}
+
+func toggleCtx(app *App, name string) error {
+	mf, ok := app.factory.(runtimeContextToggler)
+	if !ok {
+		return fmt.Errorf("expecting runtime context manager but got %T", app.factory)
+	}
+	if _, err := mf.ToggleContext(name); err != nil {
+		return err
+	}
+	app.Flash().Infof("Watching %d/%d contexts", mf.EnabledCount(), len(mf.Contexts()))
+	return nil
 }

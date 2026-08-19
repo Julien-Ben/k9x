@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/config"
 	"github.com/derailed/k9s/internal/dao"
 	"github.com/derailed/k9s/internal/model"
@@ -41,28 +42,65 @@ func TestShouldExcludeColumn_Context(t *testing.T) {
 	}
 }
 
+func TestTableContextSortActionRequiresContextHeader(t *testing.T) {
+	uu := map[string]struct {
+		header model1.Header
+		want   bool
+	}{
+		"multi resource with context header": {
+			header: model1.Header{model1.HeaderColumn{Name: "CONTEXT"}, model1.HeaderColumn{Name: "NAME"}},
+			want:   true,
+		},
+		"context manager without context header": {
+			header: model1.Header{model1.HeaderColumn{Name: "WATCH"}, model1.HeaderColumn{Name: "NAME"}, model1.HeaderColumn{Name: "HEALTH"}},
+			want:   false,
+		},
+	}
+	for k := range uu {
+		u := uu[k]
+		t.Run(k, func(t *testing.T) {
+			data := model1.NewTableDataWithRows(client.PodGVR, u.header, model1.NewRowEvents(0))
+			tbl := &Table{
+				SelectTable: &SelectTable{model: &multiCtxStubModel{multi: true, data: data}},
+				actions:     NewKeyActions(),
+				cmdBuff:     model.NewFishBuff('/', model.FilterBuffer),
+			}
+
+			tbl.doUpdate(data)
+
+			_, got := tbl.actions.Get(KeyShiftX)
+			assert.Equal(t, u.want, got)
+		})
+	}
+}
+
 // multiCtxStubModel implements ui.Tabular with only what shouldExcludeColumn
 // needs to read.
-type multiCtxStubModel struct{ multi bool }
+type multiCtxStubModel struct {
+	multi bool
+	data  *model1.TableData
+}
 
-func (*multiCtxStubModel) ClusterWide() bool                                        { return false }
-func (*multiCtxStubModel) GetNamespace() string                                     { return "" }
-func (*multiCtxStubModel) SetNamespace(string)                                      {}
-func (*multiCtxStubModel) InNamespace(string) bool                                  { return false }
-func (m *multiCtxStubModel) MultiContext() bool                                     { return m.multi }
-func (*multiCtxStubModel) SetMultiContext(bool)                                     {}
-func (*multiCtxStubModel) Get(context.Context, string) (runtime.Object, error)     { return nil, nil }
-func (*multiCtxStubModel) SetInstance(string)                                      {}
-func (*multiCtxStubModel) SetLabelSelector(labels.Selector)                         {}
-func (*multiCtxStubModel) GetLabelSelector() labels.Selector                        { return nil }
-func (*multiCtxStubModel) Empty() bool                                              { return true }
-func (*multiCtxStubModel) RowCount() int                                            { return 0 }
-func (*multiCtxStubModel) Peek() *model1.TableData                                  { return nil }
-func (*multiCtxStubModel) Watch(context.Context) error                              { return nil }
-func (*multiCtxStubModel) Refresh(context.Context) error                            { return nil }
-func (*multiCtxStubModel) SetRefreshRate(time.Duration)                             {}
-func (*multiCtxStubModel) AddListener(model.TableListener)                          {}
-func (*multiCtxStubModel) RemoveListener(model.TableListener)                       {}
+func (*multiCtxStubModel) ClusterWide() bool                                   { return false }
+func (*multiCtxStubModel) GetNamespace() string                                { return "" }
+func (*multiCtxStubModel) SetNamespace(string)                                 {}
+func (*multiCtxStubModel) InNamespace(string) bool                             { return false }
+func (m *multiCtxStubModel) MultiContext() bool                                { return m.multi }
+func (*multiCtxStubModel) SetMultiContext(bool)                                {}
+func (*multiCtxStubModel) Get(context.Context, string) (runtime.Object, error) { return nil, nil }
+func (*multiCtxStubModel) SetInstance(string)                                  {}
+func (*multiCtxStubModel) SetLabelSelector(labels.Selector)                    {}
+func (*multiCtxStubModel) GetLabelSelector() labels.Selector                   { return nil }
+func (*multiCtxStubModel) Empty() bool                                         { return true }
+func (*multiCtxStubModel) RowCount() int                                       { return 0 }
+func (m *multiCtxStubModel) Peek() *model1.TableData {
+	return m.data
+}
+func (*multiCtxStubModel) Watch(context.Context) error        { return nil }
+func (*multiCtxStubModel) Refresh(context.Context) error      { return nil }
+func (*multiCtxStubModel) SetRefreshRate(time.Duration)       {}
+func (*multiCtxStubModel) AddListener(model.TableListener)    {}
+func (*multiCtxStubModel) RemoveListener(model.TableListener) {}
 func (*multiCtxStubModel) Delete(context.Context, string, *metav1.DeletionPropagation, dao.Grace) error {
 	return nil
 }
