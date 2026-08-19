@@ -114,6 +114,15 @@ func defaultEnv(c *client.Config, path string, header model1.Header, row *model1
 	if row == nil {
 		return env
 	}
+	if row.Source != "" {
+		env["CONTEXT"] = row.Source
+		if ctx, err := c.GetContext(row.Source); err == nil {
+			env["CLUSTER"] = ctx.Cluster
+			if _, err := c.ImpersonateUser(); err != nil {
+				env["USER"] = ctx.AuthInfo
+			}
+		}
+	}
 	for _, col := range header.ColumnNames(true) {
 		idx, ok := header.IndexOf(col, true)
 		if ok && idx < len(row.Fields) {

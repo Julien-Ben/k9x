@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"path/filepath"
 	"testing"
 
 	"github.com/derailed/k9s/internal"
@@ -20,6 +21,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 func init() {
@@ -208,6 +211,36 @@ func TestK9sEnv(t *testing.T) {
 	assert.Equal(t, "a1", env["COL-A"])
 	assert.Equal(t, "b1", env["COL-B"])
 	assert.Equal(t, "c1", env["COL-C"])
+}
+
+func TestDefaultEnvUsesRowSourceContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config")
+	raw := clientcmdapi.Config{
+		CurrentContext: "ctx-a",
+		Contexts: map[string]*clientcmdapi.Context{
+			"ctx-a": {Cluster: "cluster-a", AuthInfo: "user-a"},
+			"ctx-b": {Cluster: "cluster-b", AuthInfo: "user-b"},
+		},
+		Clusters: map[string]*clientcmdapi.Cluster{
+			"cluster-a": {Server: "https://cluster-a.example"},
+			"cluster-b": {Server: "https://cluster-b.example"},
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			"user-a": {},
+			"user-b": {},
+		},
+	}
+	require.NoError(t, clientcmd.WriteToFile(raw, path))
+	flags := genericclioptions.NewConfigFlags(false)
+	flags.KubeConfig = &path
+	cfg := client.NewConfig(flags)
+	row := &model1.Row{Source: "ctx-b"}
+
+	env := defaultEnv(cfg, "default/pod-a", nil, row)
+
+	assert.Equal(t, "ctx-b", env["CONTEXT"])
+	assert.Equal(t, "cluster-b", env["CLUSTER"])
+	assert.Equal(t, "user-b", env["USER"])
 }
 
 func TestGuardPrimaryOnly(t *testing.T) {
